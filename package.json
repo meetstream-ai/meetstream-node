@@ -1,0 +1,66 @@
+{
+  "name": "@meetstream/sdk",
+  "version": "1.0.0",
+  "description": "Official MeetStream SDK for TypeScript and JavaScript \u2014 send AI meeting bots into Zoom, Google Meet and Microsoft Teams. Record, transcribe, summarize and stream meetings, and run MIA voice agents.",
+  "license": "MIT",
+  "author": "MeetStream.ai <hello@meetstream.ai>",
+  "homepage": "https://docs.meetstream.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meetstream-ai/meetstream-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/meetstream-ai/meetstream-node/issues"
+  },
+  "keywords": [
+    "meetstream",
+    "meeting-bot",
+    "meeting-bot-api",
+    "zoom",
+    "google-meet",
+    "microsoft-teams",
+    "transcription",
+    "live-transcription",
+    "speaker-diarization",
+    "ai-notetaker",
+    "meeting-recording",
+    "voice-agent",
+    "mia",
+    "webhooks",
+    "sdk",
+    "typescript"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "main": "./dist/cjs/index.cjs",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs",
+      "default": "./dist/esm/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
+    "clean": "rm -rf dist",
+    "build:esm": "tsc -p tsconfig.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && node scripts/cjs-fixup.mjs",
+    "test": "npm run build && node --test \"test/*.test.js\"",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^5.6.0"
+  }
+}
