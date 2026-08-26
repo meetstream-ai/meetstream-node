@@ -47,7 +47,7 @@ The MeetStream API has a handful of behaviours that look like bugs until you kno
 |---|---|
 | **`202` sits inside the 2xx range** and means "not ready yet", not success | Raises `NotReadyError` instead of handing you an empty body |
 | **`507` looks like a failure** but is an idempotent replay | Resolves as success, returning the original resource |
-| **Streaming-only providers return `202` forever** — no post-call transcript ever exists | `waitFor()` is always bounded and tells you exactly why it gave up |
+| **Streaming-only providers return `202` forever** - no post-call transcript ever exists | `waitFor()` is always bounded and tells you exactly why it gave up |
 | **Transcripts are keyed by `transcript_id`**, not `bot_id` | `transcripts.get()` takes the right id, and the types say so |
 | **Segments use `transcript`, not `text`** | Typed, so the wrong field is a compile error |
 | **`remove_bot` is a `GET`** | `bots.remove()` handles it |
@@ -75,7 +75,7 @@ const params: CreateBotParams = {
 ## What you can do
 
 <details open>
-<summary><b>Bots</b> — lifecycle, media, live interaction</summary>
+<summary><b>Bots</b> - lifecycle, media, live interaction</summary>
 
 ```ts
 await meetstream.bots.create(params, { idempotencyKey: uuid });
@@ -118,7 +118,7 @@ await meetstream.transcripts.transcribeBotAudio(botId);  // rescue a streaming-o
 </details>
 
 <details open>
-<summary><b>Calendar</b> — auto-join and scheduling</summary>
+<summary><b>Calendar</b> - auto-join and scheduling</summary>
 
 ```ts
 await meetstream.calendar.connectGoogle({ google_client_id, google_client_secret, google_refresh_token });
@@ -156,7 +156,7 @@ await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config
 </details>
 
 <details>
-<summary><b>Integrations</b> — Google signed-in bots, Zoom OAuth, your own S3</summary>
+<summary><b>Integrations</b> - Google signed-in bots, Zoom OAuth, your own S3</summary>
 
 ```ts
 await meetstream.googleLogins.createDomain({ /* … */ });
@@ -172,7 +172,7 @@ await meetstream.storage.set({ provider: 'aws', bucket_name, region, access_key_
 
 ## Webhooks
 
-Verify before you trust. Pass the **raw** body — re-serializing a parsed object changes key order and the signature will never match.
+Verify before you trust. Pass the **raw** body - re-serializing a parsed object changes key order and the signature will never match.
 
 ```ts
 import express from 'express';
@@ -191,7 +191,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-**`bot.stopped` is the single terminal event** and always carries `status_code: 200` — the reason lives in `bot_status` (`Stopped`, `NotAllowed`, `Denied`, `Error`). `bot.error` is *not* terminal; the bot keeps running. Streaming-only providers stop at `audio.processed` and never emit `bot.done`.
+**`bot.stopped` is the single terminal event** and always carries `status_code: 200` - the reason lives in `bot_status` (`Stopped`, `NotAllowed`, `Denied`, `Error`). `bot.error` is *not* terminal; the bot keeps running. Streaming-only providers stop at `audio.processed` and never emit `bot.done`.
 
 ## Errors
 
@@ -238,11 +238,11 @@ await meetstream.http.get('/some/new/endpoint');
 
 | | What | Where |
 |:--:|---|---|
-| 🔌 | **MCP server** — 19 tools for any MCP client | [`@meetstream/mcp`](https://www.npmjs.com/package/@meetstream/mcp) |
+| 🔌 | **MCP server** - 19 tools for any MCP client | [`@meetstream/mcp`](https://www.npmjs.com/package/@meetstream/mcp) |
 | ⌨️ | **CLI** | [`@meetstream/cli`](https://www.npmjs.com/package/@meetstream/cli) |
 | 🤖 | **Claude Code plugin** | [claude-plugin](https://github.com/meetstream-ai/claude-plugin) |
 | ✳️ | **Cursor plugin** | [meetstream-cursor-plugin](https://github.com/meetstream-ai/meetstream-cursor-plugin) |
-| 🧪 | **Labs** — runnable templates | [labs](https://github.com/meetstream-ai/labs) |
+| 🧪 | **Labs** - runnable templates | [labs](https://github.com/meetstream-ai/labs) |
 
 ## Links
 
