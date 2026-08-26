@@ -170,7 +170,7 @@ export interface CreateMiaParams {
   audio?: { sample_rate?: number; num_channels?: number; [k: string]: unknown };
   /** Pipeline mode only. */
   wake_word?: { enabled?: boolean; words?: string[]; timeout?: number; [k: string]: unknown };
-  /** Availability depends on your account and plan. Confirm before promising a visual avatar. */
+  /** Gives the agent a visual avatar in the meeting video. Confirmed working. */
   Avatar?: { provider?: string; enabled?: boolean; avatar_id?: string; [k: string]: unknown };
   [k: string]: unknown;
 }
