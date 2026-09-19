@@ -156,14 +156,15 @@ await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config
 </details>
 
 <details>
-<summary><b>Integrations</b> - Google signed-in bots, Zoom OAuth, your own S3</summary>
+<summary><b>Integrations</b> - Google signed-in bots, authenticated Zoom joins, your own S3</summary>
 
 ```ts
 await meetstream.googleLogins.createDomain({ /* … */ });
 await meetstream.googleLogins.create({ /* … */ });
 
-await meetstream.zoom.authorizeUrl();
-await meetstream.zoom.listConnections();
+// Authenticated Zoom joins: each URL is an HTTPS endpoint on your server that returns a fresh token
+await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { zak_url: 'https://you.example.com/zoom/zak' } });
+await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { obf_url: 'https://you.example.com/zoom/obf' } });
 
 await meetstream.storage.set({ provider: 'aws', bucket_name, region, access_key_id, secret_key });
 ```
@@ -176,7 +177,7 @@ Verify before you trust. Pass the **raw** body - re-serializing a parsed object 
 
 ```ts
 import express from 'express';
-import { parseWebhook, isTerminal, describeStop } from '@meetstream/sdk';
+import { parseWebhook, isTerminal, stopReason, describeStop } from '@meetstream/sdk';
 
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   let event;
@@ -186,12 +187,12 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
     return res.sendStatus(401);
   }
 
-  if (isTerminal(event)) console.log(describeStop(event));
+  if (isTerminal(event)) console.log(stopReason(event), describeStop(event));
   res.sendStatus(200);   // ack fast, process async
 });
 ```
 
-**`bot.stopped` is the single terminal event** and always carries `status_code: 200` - the reason lives in `bot_status` (`Stopped`, `NotAllowed`, `Denied`, `Error`). `bot.error` is *not* terminal; the bot keeps running. Streaming-only providers stop at `audio.processed` and never emit `bot.done`.
+**Terminals are two-layer.** Every ending arrives once as `event: "bot.stopped"`, and `bot_event` says why: `bot.stopped`, `bot.kicked`, `bot.notallowed`, `bot.denied` or `bot.failed`. Not admitted, denied and failed carry `status_code: 500`. `stopReason(event)` reads it for you (a kick and a clean exit both report `bot_status: "Stopped"`, so don't branch on that). `bot.error` is *not* terminal; the bot keeps running. `bot.done` is the final event on every path, streaming-only bots included. Every event carries a `timestamp`.
 
 ## Errors
 
@@ -246,6 +247,6 @@ await meetstream.http.get('/some/new/endpoint');
 
 ## Links
 
-[Documentation](https://docs.meetstream.ai) · [API reference](https://docs.meetstream.ai/api-reference/introduction) · [Errors](https://docs.meetstream.ai/errors) · [Webhooks](https://docs.meetstream.ai/guides/webhooks/webhooks-and-events) · [MIA](https://docs.meetstream.ai/guides/mia/create-mia) · [support@meetstream.ai](mailto:support@meetstream.ai)
+[Documentation](https://docs.meetstream.ai) · [API reference](https://docs.meetstream.ai/api-reference/introduction) · [Errors](https://docs.meetstream.ai/errors) · [Webhooks](https://docs.meetstream.ai/guides/webhooks/webhooks-and-events) · [MIA](https://docs.meetstream.ai/guides/mia/create-an-agent) · [support@meetstream.ai](mailto:support@meetstream.ai)
 
 MIT licensed.

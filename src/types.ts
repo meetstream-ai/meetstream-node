@@ -63,7 +63,7 @@ export interface CreateBotParams {
   /** The join URL. Note: `meeting_link`, not `meeting_url`. */
   meeting_link: string;
   bot_name?: string;
-  /** Video is off by default; it costs more and takes longer to process. */
+  /** Defaults to `true` in the REST API. Set `false` for transcript-only bots. */
   video_required?: boolean;
   audio_separate_streams?: boolean;
   video_separate_streams?: boolean;
@@ -91,7 +91,13 @@ export interface CreateBotParams {
   live_video_required?: { websocket_url: string; [k: string]: unknown };
   automatic_leave?: AutomaticLeaveConfig;
   google_meet?: { login_required?: boolean; google_login_domain?: string; sign_in_email?: string; [k: string]: unknown };
-  zoom?: { use_zoom_obf?: boolean; [k: string]: unknown };
+  /**
+   * Authenticated Zoom joins. Each URL is an HTTPS endpoint on your server that
+   * returns a fresh token when MeetStream calls it: `zak_url` to join as a
+   * signed-in user, `obf_url` to join On Behalf Of a user already in the meeting.
+   * The older `use_zoom_obf` flag and `zoom_oauth_connection_user_id` are rejected.
+   */
+  zoom?: { zak_url?: string; obf_url?: string; [k: string]: unknown };
   [k: string]: unknown;
 }
 
@@ -104,8 +110,19 @@ export interface Bot {
   [k: string]: unknown;
 }
 
-/** Why a bot stopped. Carried on the terminal `bot.stopped` webhook. */
-export type BotStatus = 'Stopped' | 'NotAllowed' | 'Denied' | 'Error' | (string & {});
+/**
+ * Bot status as reported on webhooks and `/status`. Casing is not consistent
+ * for failures (`FAILED`, `ERROR`, `Failed`), so prefer `bot_event` on terminals.
+ */
+export type BotStatus =
+  | 'Joining' | 'InWaitingRoom' | 'InMeeting' | 'Recording' | 'Leaving'
+  | 'Stopped' | 'NotAllowed' | 'Denied' | 'Error' | 'FAILED' | 'ERROR' | 'Failed' | 'Done'
+  | (string & {});
+
+/** The specific reason on a terminal `bot.stopped` delivery. */
+export type StopReason =
+  | 'bot.stopped' | 'bot.kicked' | 'bot.notallowed' | 'bot.denied' | 'bot.failed'
+  | (string & {});
 
 /* ----------------------------------------------------------- transcripts */
 
@@ -183,28 +200,40 @@ export interface CreateMiaParams {
  * `bot.joining` -> `bot.in_waiting_room` -> `bot.inmeeting` -> `bot.recording`
  * -> `bot.leaving` -> **`bot.stopped`** (terminal) -> `manifest.completed`
  * -> `audio.processed` -> `transcription.processed` | `transcription.failed`
- * -> `video.processed` -> `bot.done` -> `data_deletion`
+ * -> `video.processed` -> **`bot.done`** (final) -> `data_deletion`
  *
- * `bot.stopped` is the single terminal event and always carries
- * `status_code: 200`; the reason is in `bot_status`. `bot.error` is
- * non-terminal - the bot keeps running. Streaming-only providers stop at
- * `audio.processed` and never emit `bot.done`.
+ * Every ending arrives once as `event: "bot.stopped"`; `bot_event` gives the
+ * reason (`bot.stopped`, `bot.kicked`, `bot.notallowed`, `bot.denied`,
+ * `bot.failed`). Not admitted, denied and failed carry `status_code: 500`.
+ * `bot.error` is non-terminal - the bot keeps running. Streaming-only providers
+ * never emit `transcription.processed`, but `bot.done` still fires.
  */
 export type WebhookEvent =
-  | 'bot.joining' | 'bot.in_waiting_room' | 'bot.inmeeting' | 'bot.recording'
-  | 'bot.leaving' | 'bot.stopped' | 'bot.error' | 'bot.done'
+  | 'bot.scheduled' | 'bot.joining' | 'bot.in_waiting_room' | 'bot.inmeeting' | 'bot.recording'
+  | 'bot.leaving' | 'bot.stopped' | 'bot.error' | 'bot.uploading' | 'bot.done'
   | 'manifest.completed' | 'audio.processed' | 'video.processed'
-  | 'transcription.processed' | 'transcription.failed' | 'data_deletion'
+  | 'transcription.processed' | 'transcription.failed' | 'bot.transcriptionready'
+  | 'audio.skipped' | 'manifest.skipped' | 'transcription.skipped'
+  | 'participant_events.join' | 'participant_events.leave'
+  | 'data_deletion'
   | (string & {});
 
-/** The webhook envelope. The key is `event`, not `bot_event`. */
+/**
+ * The webhook envelope. The event name is always under `event`; most deliveries
+ * also carry `bot_event`, which equals `event` except on terminals, where
+ * `event` is `bot.stopped` and `bot_event` gives the reason.
+ */
 export interface WebhookPayload {
   event: WebhookEvent;
+  /** Equals `event`, except on terminals where it is the {@link StopReason}. */
+  bot_event?: WebhookEvent | StopReason;
   bot_id?: string;
   bot_status?: BotStatus;
   message?: string;
-  /** `bot.stopped` is always 200, whatever the reason. 500 appears on `transcription.failed`. */
+  /** 500 on `transcription.failed` and on failing terminals (not admitted, denied, failed). */
   status_code?: number;
   custom_attributes?: Record<string, string>;
+  /** ISO 8601. Present on every event. */
+  timestamp?: string;
   [k: string]: unknown;
 }

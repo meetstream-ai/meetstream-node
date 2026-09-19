@@ -44,6 +44,11 @@ export class GoogleLogins {
 }
 
 /** Zoom OAuth, so bots can join on an end user's behalf. */
+/**
+ * @deprecated These `/zoom/oauth/*` endpoints were removed from the MeetStream
+ * API reference. For authenticated Zoom joins, pass `zoom: { zak_url }` or
+ * `zoom: { obf_url }` to `bots.create` instead. Kept for backwards compatibility.
+ */
 export class Zoom {
   constructor(private readonly http: HttpClient) {}
 

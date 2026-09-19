@@ -18,6 +18,7 @@ import {
   verifyWebhookSignature,
   parseWebhook,
   isTerminal,
+  stopReason,
   describeStop,
 } from '../dist/esm/index.js';
 
@@ -189,7 +190,7 @@ test('baseUrl override is honoured', async () => {
 /* ------------------------------------------------------------- webhooks */
 
 const SECRET = 'whsec_test';
-const BODY = JSON.stringify({ event: 'bot.stopped', bot_id: 'b1', bot_status: 'NotAllowed', status_code: 200 });
+const BODY = JSON.stringify({ event: 'bot.stopped', bot_event: 'bot.notallowed', bot_id: 'b1', bot_status: 'NotAllowed', status_code: 500, timestamp: '2026-06-16T06:28:14.445Z' });
 const SIG = createHmac('sha256', SECRET).update(BODY, 'utf8').digest('hex');
 
 test('valid webhook signature verifies, in both bare and prefixed form', () => {
@@ -217,9 +218,25 @@ test('bot.stopped is terminal and bot.error is not', () => {
   assert.equal(isTerminal({ event: 'bot.done' }), false);
 });
 
-test('describeStop explains each bot_status', () => {
-  assert.match(describeStop({ event: 'bot.stopped', bot_status: 'NotAllowed' }), /waiting room/i);
-  assert.match(describeStop({ event: 'bot.stopped', bot_status: 'Denied' }), /refused/i);
-  assert.match(describeStop({ event: 'bot.stopped', bot_status: 'Error' }), /crashed/i);
-  assert.match(describeStop({ event: 'bot.stopped', bot_status: 'Stopped' }), /normally/i);
+// Shapes taken from captured production webhooks (Jun 2026).
+test('describeStop reads the reason from bot_event', () => {
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.stopped', bot_status: 'Stopped', status_code: 200 }), /normally/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.kicked', bot_status: 'Stopped', status_code: 200 }), /removed/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.notallowed', bot_status: 'NotAllowed', status_code: 500 }), /waiting room/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.denied', bot_status: 'Denied', status_code: 500 }), /refused/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.failed', bot_status: 'FAILED', status_code: 500 }), /crashed/i);
+});
+
+test('stopReason falls back to bot_status, case-insensitively', () => {
+  assert.equal(stopReason({ event: 'bot.stopped', bot_status: 'NotAllowed' }), 'bot.notallowed');
+  assert.equal(stopReason({ event: 'bot.stopped', bot_status: 'Denied' }), 'bot.denied');
+  assert.equal(stopReason({ event: 'bot.stopped', bot_status: 'ERROR' }), 'bot.failed');
+  assert.equal(stopReason({ event: 'bot.stopped', bot_status: 'Failed' }), 'bot.failed');
+  assert.equal(stopReason({ event: 'bot.stopped', bot_status: 'Stopped' }), 'bot.stopped');
+});
+
+test('a kick is distinguishable from a clean exit even though bot_status matches', () => {
+  const kick = { event: 'bot.stopped', bot_event: 'bot.kicked', bot_status: 'Stopped' };
+  const clean = { event: 'bot.stopped', bot_event: 'bot.stopped', bot_status: 'Stopped' };
+  assert.notEqual(stopReason(kick), stopReason(clean));
 });

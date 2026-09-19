@@ -67,7 +67,7 @@ export {
   NotReadyError,
 } from './errors.js';
 
-export { verifyWebhookSignature, parseWebhook, isTerminal, describeStop } from './webhooks.js';
+export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
 
 export type {
   Bot,

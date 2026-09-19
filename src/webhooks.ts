@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { WebhookPayload } from './types.js';
+import type { StopReason, WebhookPayload } from './types.js';
 
 /**
  * Constant-time comparison of two signature strings.
@@ -58,25 +58,45 @@ export function parseWebhook(
 }
 
 /**
- * True when this event ends the bot's meeting lifecycle.
+ * True when this event ends the bot's time in the meeting.
  *
- * `bot.stopped` is the single terminal event and always carries
- * `status_code: 200`, whatever the reason - read `bot_status` to find out why.
- * `bot.error` is deliberately not terminal: the bot keeps running.
+ * Every ending arrives once as `event: "bot.stopped"`, whatever the reason;
+ * {@link stopReason} tells you why. Post-call processing continues afterwards
+ * and `bot.done` is the final event. `bot.error` is deliberately not terminal:
+ * the bot keeps running.
  */
 export function isTerminal(event: WebhookPayload): boolean {
   return event.event === 'bot.stopped';
 }
 
 /**
+ * The specific reason a bot stopped: `bot.stopped`, `bot.kicked`,
+ * `bot.notallowed`, `bot.denied` or `bot.failed`.
+ *
+ * Reads `bot_event`, and falls back to `bot_status` for payloads without it.
+ * `bot_status` alone cannot tell a kick from a clean exit (both are `Stopped`).
+ */
+export function stopReason(event: WebhookPayload): StopReason {
+  if (typeof event.bot_event === 'string' && event.bot_event !== '') return event.bot_event;
+  switch (String(event.bot_status ?? '').toLowerCase()) {
+    case 'notallowed': return 'bot.notallowed';
+    case 'denied': return 'bot.denied';
+    case 'error':
+    case 'failed': return 'bot.failed';
+    default: return 'bot.stopped';
+  }
+}
+
+/**
  * Human-readable explanation of why a bot stopped, from the terminal event.
  */
 export function describeStop(event: WebhookPayload): string {
-  switch (event.bot_status) {
-    case 'Stopped': return 'The bot left normally.';
-    case 'NotAllowed': return 'The bot sat in the waiting room until it timed out. Nobody admitted it.';
-    case 'Denied': return 'A host actively refused the bot. This is a human decision; do not auto-retry.';
-    case 'Error': return 'The bot session crashed. Create a fresh bot.';
-    default: return event.message ?? `Bot stopped with status ${event.bot_status ?? 'unknown'}.`;
+  switch (stopReason(event)) {
+    case 'bot.stopped': return 'The bot left normally.';
+    case 'bot.kicked': return 'A participant removed the bot from the meeting.';
+    case 'bot.notallowed': return 'The bot sat in the waiting room until it timed out. Nobody admitted it.';
+    case 'bot.denied': return 'A host actively refused the bot. This is a human decision; do not auto-retry.';
+    case 'bot.failed': return 'The bot session crashed. Create a fresh bot.';
+    default: return event.message ?? `Bot stopped (${String(event.bot_event ?? event.bot_status ?? 'unknown')}).`;
   }
 }

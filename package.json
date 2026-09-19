@@ -1,6 +1,6 @@
 {
   "name": "@meetstream/sdk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Official MeetStream SDK for TypeScript and JavaScript \u2014 send AI meeting bots into Zoom, Google Meet and Microsoft Teams. Record, transcribe, summarize and stream meetings, and run MIA voice agents.",
   "license": "MIT",
   "author": "MeetStream.ai <hello@meetstream.ai>",
