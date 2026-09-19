@@ -187,6 +187,69 @@ test('baseUrl override is honoured', async () => {
   assert.match(calls[0].url, /^https:\/\/staging\.example\.com\/api\/v1\/bots$/);
 });
 
+/* ---------------------------------------------------- signed-in logins */
+
+const req = (call) => {
+  const u = new URL(call.url);
+  return {
+    method: call.init.method,
+    path: u.pathname.replace(/^\/api\/v1/, ''),
+    query: Object.fromEntries(u.searchParams),
+    body: call.init.body ? JSON.parse(call.init.body) : undefined,
+  };
+};
+
+test('teamsLogins domain methods hit /teams-login-domains', async () => {
+  const { ms, calls } = client({ body: {} });
+  await ms.teamsLogins.createDomain({ domain: 'bots.acme.com', name: 'Acme', login_mode: 'always' });
+  await ms.teamsLogins.listDomains();
+  await ms.teamsLogins.getDomain('bots.acme.com');
+  await ms.teamsLogins.updateDomain('bots.acme.com', { name: 'Renamed' });
+  await ms.teamsLogins.deleteDomain('bots.acme.com');
+  assert.deepEqual(calls.map(req), [
+    { method: 'POST', path: '/teams-login-domains', query: {}, body: { domain: 'bots.acme.com', name: 'Acme', login_mode: 'always' } },
+    { method: 'GET', path: '/teams-login-domains', query: {}, body: undefined },
+    { method: 'GET', path: '/teams-login-domains/bots.acme.com', query: {}, body: undefined },
+    { method: 'PATCH', path: '/teams-login-domains/bots.acme.com', query: {}, body: { name: 'Renamed' } },
+    { method: 'DELETE', path: '/teams-login-domains/bots.acme.com', query: {}, body: undefined },
+  ]);
+});
+
+test('teamsLogins login methods hit /teams-logins', async () => {
+  const { ms, calls } = client({ body: {} });
+  await ms.teamsLogins.create({ domain: 'bots.acme.com', email: 'bot1@bots.acme.com', password: 'placeholder' });
+  await ms.teamsLogins.list('bots.acme.com');
+  await ms.teamsLogins.get('login-1');
+  await ms.teamsLogins.update('login-1', { is_active: false });
+  await ms.teamsLogins.delete('login-1');
+  assert.deepEqual(calls.map(req), [
+    { method: 'POST', path: '/teams-logins', query: {}, body: { domain: 'bots.acme.com', email: 'bot1@bots.acme.com', password: 'placeholder' } },
+    { method: 'GET', path: '/teams-logins', query: { domain: 'bots.acme.com' }, body: undefined },
+    { method: 'GET', path: '/teams-logins/login-1', query: {}, body: undefined },
+    { method: 'PATCH', path: '/teams-logins/login-1', query: {}, body: { is_active: false } },
+    { method: 'DELETE', path: '/teams-logins/login-1', query: {}, body: undefined },
+  ]);
+});
+
+test('googleLogins.list accepts an optional domain filter', async () => {
+  const { ms, calls } = client({ body: {} });
+  await ms.googleLogins.list();
+  await ms.googleLogins.list('acme.com');
+  await ms.googleLogins.list({ timeout: 5000 });
+  assert.deepEqual(calls.map(req).map(({ method, path, query }) => ({ method, path, query })), [
+    { method: 'GET', path: '/google-logins', query: {} },
+    { method: 'GET', path: '/google-logins', query: { domain: 'acme.com' } },
+    { method: 'GET', path: '/google-logins', query: {} },
+  ]);
+});
+
+test('bots.create passes a teams sign-in block through unchanged', async () => {
+  const { ms, calls } = client({ status: 201, body: { bot_id: 'b1' } });
+  const teams = { login_required: true, teams_login_domain: 'bots.acme.com', sign_in_email: 'bot1@bots.acme.com', strict_email: false };
+  await ms.bots.create({ meeting_link: 'https://teams.microsoft.com/l/meetup-join/x', teams });
+  assert.deepEqual(JSON.parse(calls[0].init.body).teams, teams);
+});
+
 /* ------------------------------------------------------------- webhooks */
 
 const SECRET = 'whsec_test';

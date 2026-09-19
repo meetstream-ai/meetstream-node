@@ -156,11 +156,23 @@ await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config
 </details>
 
 <details>
-<summary><b>Integrations</b> - Google signed-in bots, authenticated Zoom joins, your own S3</summary>
+<summary><b>Integrations</b> - Google and Teams signed-in bots, authenticated Zoom joins, your own S3</summary>
 
 ```ts
 await meetstream.googleLogins.createDomain({ /* … */ });
 await meetstream.googleLogins.create({ /* … */ });
+
+// Teams signed-in bots: one concurrent bot per Microsoft account; bot_name is not applied
+await meetstream.teamsLogins.createDomain({ domain: 'bots.acme.com', name: 'Acme bots', login_mode: 'always' });
+await meetstream.teamsLogins.create({
+  domain: 'bots.acme.com',
+  email: 'bot1@bots.acme.com',
+  password: process.env.TEAMS_BOT_PASSWORD, // write-only, never returned
+});
+await meetstream.bots.create({
+  meeting_link: 'https://teams.microsoft.com/l/meetup-join/...',
+  teams: { login_required: true, teams_login_domain: 'bots.acme.com' },
+});
 
 // Authenticated Zoom joins: each URL is an HTTPS endpoint on your server that returns a fresh token
 await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { zak_url: 'https://you.example.com/zoom/zak' } });
@@ -168,6 +180,8 @@ await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { obf_
 
 await meetstream.storage.set({ provider: 'aws', bucket_name, region, access_key_id, secret_key });
 ```
+
+Teams setup (dedicated Microsoft 365 tenant, account requirements, errors): [Teams signed-in bots guide](https://docs.meetstream.ai/guides/app-integrations/teams-signed-in-bots).
 
 </details>
 

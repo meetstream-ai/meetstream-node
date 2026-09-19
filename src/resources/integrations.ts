@@ -32,14 +32,89 @@ export class GoogleLogins {
   create(params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
     return this.http.post('/google-logins', params, opts);
   }
-  list(opts: RequestOptions = {}): Promise<unknown> {
-    return this.http.get('/google-logins', opts);
+  /**
+   * List Google logins. Pass a domain to filter to one registered domain:
+   * `list('acme.com')`. Calling `list()` or `list(opts)` still works.
+   */
+  list(domainOrOpts?: string | RequestOptions, opts: RequestOptions = {}): Promise<unknown> {
+    if (typeof domainOrOpts === 'string') {
+      return this.http.get('/google-logins', { ...opts, query: { domain: domainOrOpts } });
+    }
+    return this.http.get('/google-logins', domainOrOpts ?? opts);
   }
   update(loginId: string, params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
     return this.http.patch(`/google-logins/${encodeURIComponent(loginId)}`, params, opts);
   }
   delete(loginId: string, opts: RequestOptions = {}): Promise<unknown> {
     return this.http.delete(`/google-logins/${encodeURIComponent(loginId)}`, opts);
+  }
+}
+
+/**
+ * Microsoft Teams signed-in bots.
+ *
+ * A signed-in Teams bot joins as a real Microsoft 365 work or school account
+ * (not teams.live.com) instead of an anonymous guest. Register a login domain,
+ * add accounts under it, then create bots with
+ * `teams: { login_required: true, teams_login_domain }`.
+ *
+ * - One concurrent bot per Teams account. Register N accounts for N concurrent
+ *   bots; when every account is busy, create returns 429.
+ * - `bot_name` and `bot_image_url` are not applied on a signed-in Teams join:
+ *   the bot shows the Microsoft account's own display name and picture.
+ * - Passwords are write-only. They are never returned by any endpoint. Read
+ *   them from an env var or secret store, never hardcode or log them.
+ * - `login_mode` currently supports `"always"` only for Teams.
+ *
+ * Guide: https://docs.meetstream.ai/guides/app-integrations/teams-signed-in-bots
+ */
+export class TeamsLogins {
+  constructor(private readonly http: HttpClient) {}
+
+  /** Register a login domain. Body: `{ domain, name?, login_mode?: "always" }`. */
+  createDomain(params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.post('/teams-login-domains', params, opts);
+  }
+  /** Returns `{ domains: [...] }` with login counts per domain. */
+  listDomains(opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.get('/teams-login-domains', opts);
+  }
+  /** One domain, including its logins (no passwords). */
+  getDomain(domain: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.get(`/teams-login-domains/${encodeURIComponent(domain)}`, opts);
+  }
+  /** Body: `{ name?, login_mode? }`. */
+  updateDomain(domain: string, params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.patch(`/teams-login-domains/${encodeURIComponent(domain)}`, params, opts);
+  }
+  /** Deletes the domain and every login under it. */
+  deleteDomain(domain: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.delete(`/teams-login-domains/${encodeURIComponent(domain)}`, opts);
+  }
+
+  /**
+   * Add a Microsoft account under a registered domain.
+   * Body: `{ domain, email, password, is_active? }`. The password is write-only.
+   */
+  create(params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.post('/teams-logins', params, opts);
+  }
+  /** List the logins under one domain. The domain is required by the API. */
+  list(domain: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.get('/teams-logins', { ...opts, query: { domain } });
+  }
+  get(loginId: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.get(`/teams-logins/${encodeURIComponent(loginId)}`, opts);
+  }
+  /**
+   * Body: `{ password?, is_active? }`. Setting a new password also reactivates
+   * a deactivated account.
+   */
+  update(loginId: string, params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.patch(`/teams-logins/${encodeURIComponent(loginId)}`, params, opts);
+  }
+  delete(loginId: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.delete(`/teams-logins/${encodeURIComponent(loginId)}`, opts);
   }
 }
 

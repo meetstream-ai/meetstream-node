@@ -59,6 +59,50 @@ export interface AutomaticLeaveConfig {
   [k: string]: unknown;
 }
 
+/**
+ * Google Meet signed-in join options (`CreateBotParams.google_meet`).
+ * Register the domain and accounts first with `meetstream.googleLogins`.
+ */
+export interface GoogleMeetSignInOptions {
+  /** `true` to join as a signed-in Workspace user. */
+  login_required?: boolean;
+  /** Required when `login_required` is true. A domain registered via `googleLogins.createDomain`. */
+  google_login_domain?: string;
+  /** Pin one account in the domain. Optional. */
+  sign_in_email?: string;
+  /**
+   * With `sign_in_email`: `true` (the default) fails if that account is busy or
+   * unhealthy; `false` falls back to any available account in the domain.
+   */
+  strict_email?: boolean;
+  [k: string]: unknown;
+}
+
+/**
+ * Microsoft Teams signed-in join options (`CreateBotParams.teams`).
+ * Register the domain and accounts first with `meetstream.teamsLogins`.
+ *
+ * - One concurrent bot per Teams account; register N accounts for N concurrent bots.
+ * - `bot_name` and `bot_image_url` are not applied on a signed-in Teams join:
+ *   the bot uses the Microsoft account's own display name and picture.
+ * - Microsoft 365 work or school Teams only (not teams.live.com).
+ * - A malformed `teams` block is dropped silently and the bot joins as a guest.
+ */
+export interface TeamsSignInOptions {
+  /** `true` to join as a signed-in Microsoft 365 user. */
+  login_required?: boolean;
+  /** Required when `login_required` is true. A domain registered via `teamsLogins.createDomain`. */
+  teams_login_domain?: string;
+  /** Pin one account in the domain. Optional. */
+  sign_in_email?: string;
+  /**
+   * With `sign_in_email`: `true` (the default) fails with 409 if that account
+   * is busy or deactivated; `false` falls back to any available account in the domain.
+   */
+  strict_email?: boolean;
+  [k: string]: unknown;
+}
+
 export interface CreateBotParams {
   /** The join URL. Note: `meeting_link`, not `meeting_url`. */
   meeting_link: string;
@@ -90,7 +134,10 @@ export interface CreateBotParams {
   live_audio_required?: { websocket_url: string; [k: string]: unknown };
   live_video_required?: { websocket_url: string; [k: string]: unknown };
   automatic_leave?: AutomaticLeaveConfig;
-  google_meet?: { login_required?: boolean; google_login_domain?: string; sign_in_email?: string; [k: string]: unknown };
+  /** Google signed-in join. See {@link GoogleMeetSignInOptions}. */
+  google_meet?: GoogleMeetSignInOptions;
+  /** Microsoft Teams signed-in join. See {@link TeamsSignInOptions}. */
+  teams?: TeamsSignInOptions;
   /**
    * Authenticated Zoom joins. Each URL is an HTTPS endpoint on your server that
    * returns a fresh token when MeetStream calls it: `zak_url` to join as a

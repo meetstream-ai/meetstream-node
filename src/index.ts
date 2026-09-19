@@ -3,7 +3,7 @@ import { Bots } from './resources/bots.js';
 import { Transcripts } from './resources/transcripts.js';
 import { Calendar } from './resources/calendar.js';
 import { Mia } from './resources/mia.js';
-import { GoogleLogins, Zoom, Storage } from './resources/integrations.js';
+import { GoogleLogins, TeamsLogins, Zoom, Storage } from './resources/integrations.js';
 
 /**
  * The MeetStream client.
@@ -33,6 +33,7 @@ export class MeetStream {
   readonly calendar: Calendar;
   readonly mia: Mia;
   readonly googleLogins: GoogleLogins;
+  readonly teamsLogins: TeamsLogins;
   readonly zoom: Zoom;
   readonly storage: Storage;
 
@@ -43,6 +44,7 @@ export class MeetStream {
     this.calendar = new Calendar(this.http);
     this.mia = new Mia(this.http);
     this.googleLogins = new GoogleLogins(this.http);
+    this.teamsLogins = new TeamsLogins(this.http);
     this.zoom = new Zoom(this.http);
     this.storage = new Storage(this.http);
   }
@@ -74,6 +76,8 @@ export type {
   BotStatus,
   CreateBotParams,
   CreateMiaParams,
+  GoogleMeetSignInOptions,
+  TeamsSignInOptions,
   RecordingConfig,
   AutomaticLeaveConfig,
   TranscriptSegment,
