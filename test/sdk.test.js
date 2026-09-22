@@ -303,3 +303,18 @@ test('a kick is distinguishable from a clean exit even though bot_status matches
   const clean = { event: 'bot.stopped', bot_event: 'bot.stopped', bot_status: 'Stopped' };
   assert.notEqual(stopReason(kick), stopReason(clean));
 });
+
+// Policy: audio only unless asked, speaker view when video is on, per-participant video opt-in.
+test('create passes video policy fields through unchanged', async () => {
+  const { ms, calls } = client([{ status: 201, body: { bot_id: 'b1' } }]);
+  await ms.bots.create({
+    meeting_link: 'https://meet.google.com/x',
+    bot_name: 'Notetaker',
+    video_required: true,
+    recording_config: { video_layout: 'speaker_view' },
+  });
+  const sent = JSON.parse(calls[0].init.body);
+  assert.equal(sent.video_required, true);
+  assert.equal(sent.recording_config.video_layout, 'speaker_view');
+  assert.equal(sent.video_separate_streams, undefined);
+});

@@ -38,8 +38,17 @@ export interface TranscriptProviderConfig {
   [k: string]: unknown;
 }
 
+/** Speaker view follows the active speaker; grid view is a composited mosaic of everyone. */
+export type VideoLayout = 'speaker_view' | 'grid_view';
+
 export interface RecordingConfig {
   transcript?: { provider?: TranscriptProviderConfig };
+  /**
+   * Layout of the mixed video recording. Send `speaker_view` unless the user asked for
+   * grid or gallery view: the REST API defaults to `grid_view` when this is omitted.
+   * Ignored unless `video_required` is true. Google Meet, Teams and Zoom only.
+   */
+  video_layout?: VideoLayout;
   /** `timed` retention deletes media after `hours`. Set this for anything containing customer conversations. */
   retention?: { type?: 'timed' | string; hours?: number; [k: string]: unknown };
   [k: string]: unknown;
@@ -107,9 +116,15 @@ export interface CreateBotParams {
   /** The join URL. Note: `meeting_link`, not `meeting_url`. */
   meeting_link: string;
   bot_name?: string;
-  /** Defaults to `true` in the REST API. Set `false` for transcript-only bots. */
+  /**
+   * Record video as well as audio. The REST API defaults this to `true`, so send
+   * `false` explicitly unless the user asked for video: transcripts, summaries,
+   * diarization and speaker timelines all work from audio alone. When you do set
+   * it, pair it with `recording_config.video_layout: 'speaker_view'`.
+   */
   video_required?: boolean;
   audio_separate_streams?: boolean;
+  /** One video file per participant. Opt-in only: leave unset unless it was asked for. */
   video_separate_streams?: boolean;
   /** Schedule for later, ISO 8601. */
   join_at?: string;

@@ -63,8 +63,12 @@ import type { CreateBotParams, WebhookPayload } from '@meetstream/sdk';
 
 const params: CreateBotParams = {
   meeting_link: 'https://zoom.us/j/123',   // not meeting_url
-  video_required: true,
-  audio_separate_streams: true,            // per-participant tracks
+  video_required: false,                   // audio only unless video was asked for; the API defaults to true
+  audio_separate_streams: true,            // per-participant audio tracks
+  // With video on, pick the layout explicitly (the API defaults to grid_view):
+  // video_required: true,
+  // recording_config: { video_layout: 'speaker_view' },
+  // video_separate_streams stays off unless per-participant video was asked for
   automatic_leave: {
     waiting_room_timeout: 300,
     in_call_recording_timeout: 900,        // minimum 600, below that the API 400s

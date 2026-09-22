@@ -72,6 +72,7 @@ export {
 export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
 
 export type {
+  VideoLayout,
   Bot,
   BotStatus,
   CreateBotParams,
