@@ -258,7 +258,7 @@ await meetstream.http.get('/some/new/endpoint');
 
 | | What | Where |
 |:--:|---|---|
-| 🔌 | **MCP server** - 19 tools for any MCP client | [`@meetstream/mcp`](https://www.npmjs.com/package/@meetstream/mcp) |
+| 🔌 | **MCP server** - 19 tools for any MCP client, hosted: add the URL and sign in | [`https://mcp.meetstream.ai/mcp`](https://docs.meetstream.ai/build-with-ai/meetstream-mcp-server) |
 | ⌨️ | **CLI** | [`@meetstream/cli`](https://www.npmjs.com/package/@meetstream/cli) |
 | 🤖 | **Claude Code plugin** | [claude-plugin](https://github.com/meetstream-ai/claude-plugin) |
 | ✳️ | **Cursor plugin** | [meetstream-cursor-plugin](https://github.com/meetstream-ai/meetstream-cursor-plugin) |
