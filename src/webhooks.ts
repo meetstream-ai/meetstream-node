@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { StopReason, WebhookPayload } from './types.js';
+import type { FailureReason, StopReason, WebhookPayload } from './types.js';
 
 /**
  * Constant-time comparison of two signature strings.
@@ -87,11 +87,29 @@ export function stopReason(event: WebhookPayload): StopReason {
   }
 }
 
+/** What a `failure_reason` on `bot.failed` means. Unknown reasons fall through to the generic text. */
+const FAILURE_REASONS: Record<string, string> = {
+  invalid_meeting_link: 'The meeting link is invalid or the meeting was not found. Check the link.',
+  meeting_restricted:
+    "Meeting access is restricted: the organizer's settings do not let guests ask to join. Use a signed-in bot from an allowed domain, or ask the host to relax access.",
+  meeting_not_started: 'The meeting had not started. Start it first, or schedule the bot with join_at.',
+  meeting_ended: 'The meeting had already ended.',
+  sign_in_required: 'The meeting does not accept anonymous guests. Use a signed-in bot.',
+  google_sign_in_failed: 'The signed-in bot could not complete Google sign-in. Check the login and domain settings.',
+  cant_join_call: 'The platform refused the guest join. Use a signed-in bot, or confirm the meeting allows external guests.',
+};
+
 /**
  * Human-readable explanation of why a bot stopped, from the terminal event.
+ * On `bot.failed` it reads `failure_reason` when the platform sent one.
  */
 export function describeStop(event: WebhookPayload): string {
-  switch (stopReason(event)) {
+  const reason = stopReason(event);
+  const failure: FailureReason | undefined = event.failure_reason;
+  if (reason === 'bot.failed' && typeof failure === 'string' && FAILURE_REASONS[failure]) {
+    return FAILURE_REASONS[failure];
+  }
+  switch (reason) {
     case 'bot.stopped': return 'The bot left normally.';
     case 'bot.kicked': return 'A participant removed the bot from the meeting.';
     case 'bot.notallowed': return 'The bot sat in the waiting room until it timed out. Nobody admitted it.';

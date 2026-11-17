@@ -53,6 +53,8 @@ The MeetStream API has a handful of behaviours that look like bugs until you kno
 | **`remove_bot` is a `GET`** | `bots.remove()` handles it |
 | **REST uses `Token`, the MCP server uses `Bearer`** | Correct scheme sent automatically |
 | **MIA takes only `agent_config_id`** | Documented on the type; extra bridge fields are the usual cause of a silent agent |
+| **Large speaker timelines come back as a download link**, not the timeline | `SpeakerTimeline` is a union; `isSpeakerTimelineDownload()` tells you which one you got |
+| **`429` and in-progress `409` carry `Retry-After`** | Retried after the delay the API asked for; `err.retryAfter` has it when you handle it yourself |
 
 ## Typed end to end
 
@@ -63,7 +65,7 @@ import type { CreateBotParams, WebhookPayload } from '@meetstream/sdk';
 
 const params: CreateBotParams = {
   meeting_link: 'https://zoom.us/j/123',   // not meeting_url
-  video_required: false,                   // audio only unless video was asked for; the API defaults to true
+  video_required: false,                   // audio only unless video was asked for (the API default; send it anyway)
   audio_separate_streams: true,            // per-participant audio tracks
   // With video on, pick the layout explicitly (the API defaults to grid_view):
   // video_required: true,
@@ -85,26 +87,31 @@ const params: CreateBotParams = {
 await meetstream.bots.create(params, { idempotencyKey: uuid });
 await meetstream.bots.list();
 await meetstream.bots.status(botId);
+await meetstream.bots.get(botId);          // full record, same as detail()
 await meetstream.bots.detail(botId);       // includes transcript_id
-await meetstream.bots.summary(botId);      // AI summary
 await meetstream.bots.remove(botId);       // leave, keep the data
+await meetstream.bots.stopStatus(botId);   // progress of that stop request
 await meetstream.bots.deleteData(botId);   // irreversible
 
 await meetstream.bots.audio(botId);
 await meetstream.bots.video(botId);
 await meetstream.bots.audioStreams(botId);      // per-participant audio
 await meetstream.bots.recordingStreams(botId);  // per-participant video
-await meetstream.bots.screenshots(botId);
+await meetstream.bots.screenshots(botId, { limit: 25 });  // newest first, paged
+await meetstream.bots.screenshot(botId, screenshotId);
 await meetstream.bots.waitForAudio(botId);      // bounded
 
 await meetstream.bots.participants(botId);
 await meetstream.bots.chats(botId);
-await meetstream.bots.speakerTimeline(botId);
+await meetstream.bots.speakerTimeline(botId);   // inline, or a download link for large meetings
 
 await meetstream.bots.sendMessage(botId, 'Recording has started.');
 await meetstream.bots.sendImage(botId, { img_url: 'https://…/slide.png', display_duration: 5 });
 await meetstream.bots.pauseRecording(botId);    // privacy window
 await meetstream.bots.resumeRecording(botId);
+await meetstream.bots.raiseHand(botId);         // and lowerHand(botId)
+await meetstream.bots.sendCommand(botId, { command: 'screenshot' });
+await meetstream.bots.updateMia(botId, { system_prompt: '…', wait_for_ack: true });
 ```
 
 </details>
@@ -114,6 +121,7 @@ await meetstream.bots.resumeRecording(botId);
 
 ```ts
 await meetstream.transcripts.get(transcriptId);
+await meetstream.transcripts.getByBotId(botId);          // first transcript, no id lookup
 await meetstream.transcripts.waitFor(transcriptId, { timeoutMs: 900_000 });
 await meetstream.transcripts.listForBot(botId);
 await meetstream.transcripts.transcribeBotAudio(botId);  // rescue a streaming-only bot
@@ -127,6 +135,10 @@ await meetstream.transcripts.transcribeBotAudio(botId);  // rescue a streaming-o
 ```ts
 await meetstream.calendar.connectGoogle({ google_client_id, google_client_secret, google_refresh_token });
 await meetstream.calendar.connectOutlook({ /* … */ });
+await meetstream.calendar.list();                         // calendars on every connected account
+await meetstream.calendar.listConnections();
+await meetstream.calendar.getConnection('google', 'ops@acme.com');
+await meetstream.calendar.deleteConnection('google', 'ops@acme.com', { purge_events: false });
 await meetstream.calendar.events();
 await meetstream.calendar.scheduleEvent(eventId);
 await meetstream.calendar.listScheduledBots();
@@ -179,11 +191,17 @@ await meetstream.bots.create({
   teams: { login_required: true, teams_login_domain: 'bots.acme.com' },
 });
 
-// Authenticated Zoom joins: each URL is an HTTPS endpoint on your server that returns a fresh token
+// Zoom with no setup: just the link. use_own_app: true requires your own Zoom app instead
+await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { use_own_app: false } });
+
+// Authenticated Zoom joins (need your own Zoom app): each URL is an HTTPS endpoint on your server that returns a fresh token
 await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { zak_url: 'https://you.example.com/zoom/zak' } });
 await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { obf_url: 'https://you.example.com/zoom/obf' } });
 
 await meetstream.storage.set({ provider: 'aws', bucket_name, region, access_key_id, secret_key });
+
+// Pick one of the storage destinations saved in the dashboard for this bot
+await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', storage_id: 'eu-archive' });
 ```
 
 Teams setup (dedicated Microsoft 365 tenant, account requirements, errors): [Teams signed-in bots guide](https://docs.meetstream.ai/guides/app-integrations/teams-signed-in-bots).
@@ -211,7 +229,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-**Terminals are two-layer.** Every ending arrives once as `event: "bot.stopped"`, and `bot_event` says why: `bot.stopped`, `bot.kicked`, `bot.notallowed`, `bot.denied` or `bot.failed`. Not admitted, denied and failed carry `status_code: 500`. `stopReason(event)` reads it for you (a kick and a clean exit both report `bot_status: "Stopped"`, so don't branch on that). `bot.error` is *not* terminal; the bot keeps running. `bot.done` is the final event on every path, streaming-only bots included. Every event carries a `timestamp`.
+Participant events (`participant_events.join`, `leave`, `chat_message`, `raise_hand`, `lower_hand`) go only to the `recording_config.realtime_endpoints` entries that list them; type them with `ParticipantEventPayload`.
+
+**Terminals are two-layer.** Every ending arrives once as `event: "bot.stopped"`, and `bot_event` says why: `bot.stopped`, `bot.kicked`, `bot.notallowed`, `bot.denied` or `bot.failed`. Not admitted, denied and failed carry `status_code: 500`. `stopReason(event)` reads it for you (a kick and a clean exit both report `bot_status: "Stopped"`, so don't branch on that). On `bot.failed`, `failure_reason` (for example `meeting_restricted` or `sign_in_required`) says why the meeting blocked the join, and `describeStop()` explains it. `bot.error` is *not* terminal; the bot keeps running. `bot.done` is the final event on every path, streaming-only bots included. Every event carries a `timestamp`.
 
 ## Errors
 
@@ -222,11 +242,13 @@ try {
   await meetstream.transcripts.get(id);
 } catch (err) {
   if (err instanceof NotReadyError) { /* 202 - poll again */ }
-  else if (err instanceof RateLimitError) { await sleep(err.retryAfter! * 1000); }
-  else if (err instanceof BadRequestError) { console.error(err.message); } // the API's own message
+  else if (err instanceof RateLimitError) { await sleep((err.retryAfter ?? 5) * 1000); } // also err.limit, err.window
+  else if (err instanceof BadRequestError) { console.error(err.message, err.code); } // the API's own message and code
   else if (err instanceof MeetStreamError) { console.error(err.status, err.requestId); }
 }
 ```
+
+`err.message` is the API's `message` field (older responses: `error`, or a bare string). `err.code` carries a machine-readable code when the API sent one, such as `rate_limit_exceeded` or `unsupported_on_whatsapp`.
 
 `AuthenticationError` (401) means the header never arrived. `PermissionError` (403) means the key itself was rejected. That distinction saves a lot of debugging.
 
@@ -237,11 +259,13 @@ const meetstream = new MeetStream({
   apiKey: process.env.MEETSTREAM_API_KEY,
   baseUrl: 'https://api.meetstream.ai/api/v1',
   timeout: 60_000,
-  maxRetries: 2,          // 429 and 5xx, exponential backoff, honours Retry-After
+  maxRetries: 2,          // 429, 5xx and in-progress 409, exponential backoff, honours Retry-After
   defaultHeaders: {},
   fetch: customFetch,     // testing, proxies, instrumentation
 });
 ```
+
+A `Retry-After` longer than 60 seconds (for example a pay-as-you-go hourly create limit) is not waited out inside the call: the `RateLimitError` is thrown with `retryAfter` set, so you can schedule the retry.
 
 | Variable | Purpose |
 |---|---|
@@ -253,6 +277,20 @@ Anything not yet wrapped is reachable through the raw transport:
 ```ts
 await meetstream.http.get('/some/new/endpoint');
 ```
+
+## What's new in 1.3.0
+
+- **Raise and lower hand.** `bots.raiseHand(botId)` / `bots.lowerHand(botId)` on Google Meet, Zoom and Teams. `hand_raised` in the response is the state the bot saw after acting.
+- **`bots.sendCommand()`** for the full live-bot command set, typed per command: `raise_hand`, `lower_hand`, `sendmsg`, `sendchat`, `sendimg`, `sendimg_url`, `interrupt`, `screenshot`, `update_mia`, `pause_recording`, `resume_recording`.
+- **`bots.updateMia()`** updates a running MIA agent; `wait_for_ack: true` returns the agent's result (`applied`, `partially_applied`, `failed`).
+- **MIA with Claude:** `model: { provider: 'anthropic', model: 'claude-haiku-5-5' }` in pipeline mode, with `reasoning_effort` and `tool_choice` typed.
+- **New create fields typed:** `zoom.use_own_app`, `bot_camera_stream`, `storage_id`, `initial_audio`, the `smallest` / `smallest_streaming` transcription providers, `grid_view_default` / `speaker_view_default` layouts (Google Meet and Teams), `realtime_endpoints` with participant hand events, and `recording_permission_denied_timeout` up to 600 seconds.
+- **Speaker timeline download links:** `speakerTimeline()` returns a `SpeakerTimeline` union; `isSpeakerTimelineDownload()` detects the large-meeting shape.
+- **Endpoints added:** `bots.get`, `bots.stopStatus`, `bots.screenshot`, `transcripts.getByBotId`, `googleLogins.get`, `calendar.listConnections`, `calendar.getConnection`, `calendar.deleteConnection`.
+- **Fixed routes:** `bots.screenshots()` now calls `/screenshots` (with paging), `calendar.list()` calls `/calendar/calendars`, and `calendar.disconnect()` is a `DELETE`.
+- **Errors:** `retryAfter` and `code` on every error, `limit` and `window` on `RateLimitError`. In-progress `409`s on create are retried with the same key.
+- **Types:** more `BotStatus` values, `BotErrorReason`, `FailureReason`, `StopStatus`, and `failure_reason` / `no_audio_reason` on webhooks.
+- **Deprecated:** `bots.summary()` and `calendar.toggleRecurrence()`. The API has no route for either.
 
 ## Also available
 

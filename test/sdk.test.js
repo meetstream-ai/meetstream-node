@@ -20,6 +20,7 @@ import {
   isTerminal,
   stopReason,
   describeStop,
+  isSpeakerTimelineDownload,
 } from '../dist/esm/index.js';
 
 /** Build a fetch stub that records calls and replays queued responses. */
@@ -317,4 +318,294 @@ test('create passes video policy fields through unchanged', async () => {
   assert.equal(sent.video_required, true);
   assert.equal(sent.recording_config.video_layout, 'speaker_view');
   assert.equal(sent.video_separate_streams, undefined);
+});
+
+/* ------------------------------------------------------ bot endpoints */
+
+test('bots.get and stopStatus hit the bot routes', async () => {
+  const { ms, calls } = client({ body: { bot_id: 'b1', status: 'stopped' } });
+  await ms.bots.get('b1');
+  const stop = await ms.bots.stopStatus('b1');
+  assert.equal(stop.status, 'stopped');
+  assert.deepEqual(calls.map(req).map(({ method, path }) => ({ method, path })), [
+    { method: 'GET', path: '/bots/b1' },
+    { method: 'GET', path: '/bots/b1/stop_status' },
+  ]);
+});
+
+test('screenshots list uses /screenshots with paging params, and one is fetched by id', async () => {
+  const { ms, calls } = client({ body: { bot_id: 'b1', screenshots: [], next_continuation_token: null } });
+  await ms.bots.screenshots('b1');
+  await ms.bots.screenshots('b1', { limit: 50, continuation_token: 'tok', meta: 'm' });
+  await ms.bots.screenshot('b1', '20261110T101010123Z_abc');
+  assert.deepEqual(calls.map(req).map(({ method, path, query }) => ({ method, path, query })), [
+    { method: 'GET', path: '/bots/b1/screenshots', query: {} },
+    { method: 'GET', path: '/bots/b1/screenshots', query: { limit: '50', continuation_token: 'tok', meta: 'm' } },
+    { method: 'GET', path: '/bots/b1/screenshots/20261110T101010123Z_abc', query: {} },
+  ]);
+});
+
+test('sendCommand posts the command and returns hand_raised', async () => {
+  const { ms, calls } = client({ body: { status: 'accepted', bot_id: 'b1', command: 'raise_hand', hand_raised: true } });
+  const out = await ms.bots.sendCommand('b1', { command: 'raise_hand' });
+  assert.equal(out.hand_raised, true);
+  assert.deepEqual(req(calls[0]), { method: 'POST', path: '/bots/b1/send_command', query: {}, body: { command: 'raise_hand' } });
+});
+
+test('raiseHand and lowerHand send only the command', async () => {
+  const { ms, calls } = client([
+    { body: { status: 'accepted', bot_id: 'b1', command: 'raise_hand', hand_raised: true } },
+    { body: { status: 'accepted', bot_id: 'b1', command: 'lower_hand', hand_raised: false } },
+  ]);
+  const up = await ms.bots.raiseHand('b1');
+  const down = await ms.bots.lowerHand('b1');
+  assert.equal(up.hand_raised, true);
+  assert.equal(down.hand_raised, false);
+  assert.deepEqual(calls.map((c) => req(c).body), [{ command: 'raise_hand' }, { command: 'lower_hand' }]);
+  assert.ok(calls.every((c) => req(c).path === '/bots/b1/send_command'));
+});
+
+test('sendCommand screenshot returns the download fields', async () => {
+  const body = { status: 'accepted', bot_id: 'b1', command: 'screenshot', id: 's1', filename: 's1.png', recorded_at: '2026-11-10T10:10:10Z', url: 'https://example.com/s1' };
+  const { ms, calls } = client({ body });
+  const out = await ms.bots.sendCommand('b1', { command: 'screenshot', metadata: { label: 'slide 3' } });
+  assert.equal(out.url, 'https://example.com/s1');
+  assert.deepEqual(req(calls[0]).body, { command: 'screenshot', metadata: { label: 'slide 3' } });
+});
+
+test('a command sent to a bot that is not in the meeting is a ConflictError and is not retried', async () => {
+  const { fetchImpl, calls } = stubFetch({ status: 409, body: { error: 'Bot is not in an active meeting' } });
+  const ms = new MeetStream({ apiKey: 'k', fetch: fetchImpl, maxRetries: 3 });
+  await assert.rejects(() => ms.bots.raiseHand('b1'), ConflictError);
+  assert.equal(calls.length, 1);
+});
+
+test('an unsupported command surfaces the API code', async () => {
+  const { ms } = client({ status: 400, body: { error: "Command 'raise_hand' is not supported on whatsapp bots.", code: 'unsupported_on_whatsapp', command: 'raise_hand', platform: 'whatsapp' } });
+  await assert.rejects(() => ms.bots.raiseHand('b1'), (e) => {
+    assert.ok(e instanceof BadRequestError);
+    assert.equal(e.code, 'unsupported_on_whatsapp');
+    assert.match(e.message, /not supported on whatsapp/);
+    return true;
+  });
+});
+
+test('updateMia posts to update_mia with wait_for_ack and returns the agent result', async () => {
+  const { ms, calls } = client({ body: { status: 'partially_applied', bot_id: 'b1', command: 'update_mia', applied: ['system_prompt'], errors: [{ field: 'wake_words' }] } });
+  const out = await ms.bots.updateMia('b1', { system_prompt: 'Be brief.', wake_words: ['hey ada'], wait_for_ack: true });
+  assert.equal(out.status, 'partially_applied');
+  assert.deepEqual(out.applied, ['system_prompt']);
+  assert.deepEqual(req(calls[0]), {
+    method: 'POST', path: '/bots/b1/update_mia', query: {},
+    body: { system_prompt: 'Be brief.', wake_words: ['hey ada'], wait_for_ack: true },
+  });
+});
+
+test('sendCommand update_mia carries the same fields', async () => {
+  const { ms, calls } = client({ body: { status: 'applied', bot_id: 'b1', command: 'update_mia' } });
+  await ms.bots.sendCommand('b1', { command: 'update_mia', agent_config_params: { name: 'Ada' }, wait_for_ack: true });
+  assert.deepEqual(req(calls[0]).body, { command: 'update_mia', agent_config_params: { name: 'Ada' }, wait_for_ack: true });
+});
+
+test('sendMessage accepts metadata; sendImage accepts base64', async () => {
+  const { ms, calls } = client({ body: { status: 'accepted' } });
+  await ms.bots.sendMessage('b1', 'hello');
+  await ms.bots.sendMessage('b1', { message: 'hi', metadata: { k: 'v' } });
+  await ms.bots.sendImage('b1', { img: 'aGVsbG8=', display_duration: 3 });
+  assert.deepEqual(calls.map(req).map(({ path, body }) => ({ path, body })), [
+    { path: '/bots/b1/send_message', body: { message: 'hello' } },
+    { path: '/bots/b1/send_message', body: { message: 'hi', metadata: { k: 'v' } } },
+    { path: '/bots/b1/send_image', body: { img: 'aGVsbG8=', display_duration: 3 } },
+  ]);
+});
+
+test('speakerTimeline returns either the timeline or a download link', async () => {
+  const link = { bot_id: 'b1', speaker_timeline_url: 'https://example.com/t.json', size_bytes: 8421337, truncated: false };
+  const { ms, calls } = client([{ body: { chunks: [] } }, { body: link }]);
+  const inline = await ms.bots.speakerTimeline('b1');
+  const large = await ms.bots.speakerTimeline('b1');
+  assert.equal(isSpeakerTimelineDownload(inline), false);
+  assert.equal(isSpeakerTimelineDownload(large), true);
+  assert.equal(large.size_bytes, 8421337);
+  assert.equal(isSpeakerTimelineDownload([]), false);
+  assert.equal(isSpeakerTimelineDownload(null), false);
+  assert.match(calls[0].url, /\/bots\/b1\/get_speaker_timeline$/);
+});
+
+test('transcripts.getByBotId reads the bot transcript route', async () => {
+  const { ms, calls } = client({ body: { transcript: [] } });
+  await ms.transcripts.getByBotId('b1');
+  await ms.transcripts.getByBotId('b1', { raw: true });
+  assert.deepEqual(calls.map(req).map(({ path, query }) => ({ path, query })), [
+    { path: '/bots/b1/get_transcript', query: { raw: 'false' } },
+    { path: '/bots/b1/get_transcript', query: { raw: 'true' } },
+  ]);
+});
+
+test('googleLogins.get fetches one login', async () => {
+  const { ms, calls } = client({ body: {} });
+  await ms.googleLogins.get('login-1');
+  assert.deepEqual(req(calls[0]), { method: 'GET', path: '/google-logins/login-1', query: {}, body: undefined });
+});
+
+/* ---------------------------------------------------------- calendar */
+
+test('calendar list, connections and disconnect use the live routes', async () => {
+  const { ms, calls } = client({ body: {} });
+  await ms.calendar.list();
+  await ms.calendar.list({ provider: 'google', account_id: 'a@acme.com' });
+  await ms.calendar.listConnections({ limit: 10, cursor: 'c1' });
+  await ms.calendar.getConnection('outlook', 'a@acme.com');
+  await ms.calendar.deleteConnection('google', 'a@acme.com', { purge_events: false });
+  await ms.calendar.disconnect({ provider: 'google', account_id: 'a@acme.com', purge_events: false });
+  const got = calls.map(req);
+  assert.deepEqual(got.map(({ method, path, query }) => ({ method, path, query })), [
+    { method: 'GET', path: '/calendar/calendars', query: {} },
+    { method: 'GET', path: '/calendar/calendars', query: { provider: 'google', account_id: 'a@acme.com' } },
+    { method: 'GET', path: '/calendar/connections', query: { limit: '10', cursor: 'c1' } },
+    { method: 'GET', path: '/calendar/connections/outlook/a%40acme.com', query: {} },
+    { method: 'DELETE', path: '/calendar/connections/google/a%40acme.com', query: { purge_events: 'false' } },
+    { method: 'DELETE', path: '/calendar/disconnect', query: { provider: 'google', account_id: 'a@acme.com', purge_events: 'false' } },
+  ]);
+});
+
+/* ------------------------------------------------------ create fields */
+
+test('create passes the new bot fields through unchanged', async () => {
+  const { ms, calls } = client({ status: 201, body: { bot_id: 'b1' } });
+  const params = {
+    meeting_link: 'https://zoom.us/j/123',
+    bot_name: 'Notetaker',
+    storage_id: 'eu-archive_1',
+    zoom: { use_own_app: false },
+    bot_camera_stream: { websocket_url: 'wss://signal.example.com/ws' },
+    automatic_leave: { recording_permission_denied_timeout: 600 },
+    recording_config: {
+      video_layout: 'speaker_view_default',
+      transcript: { provider: { smallest: { model: 'pulse', language: 'en', diarize: true, keywords: ['Acme'] } } },
+      realtime_endpoints: [{ type: 'webhook', url: 'https://you.example.com/rt', events: ['participant_events.raise_hand', 'participant_events.lower_hand'] }],
+    },
+  };
+  await ms.bots.create(params);
+  assert.deepEqual(JSON.parse(calls[0].init.body), params);
+});
+
+test('create sends smallest_streaming with a live transcription webhook', async () => {
+  const { ms, calls } = client({ status: 201, body: { bot_id: 'b1' } });
+  await ms.bots.create({
+    meeting_link: 'https://meet.google.com/x',
+    live_transcription_required: { webhook_url: 'https://you.example.com/live' },
+    recording_config: { transcript: { provider: { smallest_streaming: { model: 'pulse-2' } } } },
+  });
+  assert.deepEqual(JSON.parse(calls[0].init.body).recording_config.transcript.provider, { smallest_streaming: { model: 'pulse-2' } });
+});
+
+test('mia create passes an anthropic model config through', async () => {
+  const { ms, calls } = client({ body: { agent_config_id: 'agent-2' } });
+  const model = { provider: 'anthropic', model: 'claude-haiku-5-5', reasoning_effort: 'low', temperature: 0.4, tool_choice: 'auto' };
+  await ms.mia.create({ agent_name: 'Claude agent', mode: 'pipeline', model, agent: { mcp_fail_open: false } });
+  const sent = JSON.parse(calls[0].init.body);
+  assert.deepEqual(sent.model, model);
+  assert.equal(sent.agent.mcp_fail_open, false);
+});
+
+/* ------------------------------------------------- errors and retries */
+
+test('a {"message"} body becomes the error message; error and bare strings are fallbacks', async () => {
+  const cases = [
+    [{ message: 'Manifest file not found. It may still be processing.' }, 'Manifest file not found. It may still be processing.'],
+    [{ error: 'Bot not found' }, 'Bot not found'],
+    ['Bot not found', 'Bot not found'],
+  ];
+  for (const [body, expected] of cases) {
+    const { ms } = client({ status: 404, body });
+    await assert.rejects(() => ms.bots.speakerTimeline('b1'), (e) => {
+      assert.ok(e instanceof NotFoundError);
+      assert.equal(e.message, expected);
+      return true;
+    });
+  }
+});
+
+test('429 surfaces Retry-After, limit, window and code', async () => {
+  const body = { error: 'rate_limit_exceeded', message: 'Too many bot creates.', limit: 5, window: 'minute', retry_after: 37 };
+  const { ms } = client({ status: 429, body, headers: { 'retry-after': '37' } });
+  await assert.rejects(() => ms.bots.create({ meeting_link: 'x' }), (e) => {
+    assert.ok(e instanceof RateLimitError);
+    assert.equal(e.retryAfter, 37);
+    assert.equal(e.limit, 5);
+    assert.equal(e.window, 'minute');
+    assert.equal(e.code, 'rate_limit_exceeded');
+    assert.equal(e.message, 'Too many bot creates.');
+    return true;
+  });
+});
+
+test('retryAfter falls back to the body, and an HTTP-date header is parsed', async () => {
+  const a = client({ status: 429, body: { error: 'Rate limit exceeded', limit: 30, retry_after: 12 } });
+  await assert.rejects(() => a.ms.bots.raiseHand('b1'), (e) => e instanceof RateLimitError && e.retryAfter === 12);
+  const when = new Date(Date.now() + 30_000).toUTCString();
+  const b = client({ status: 429, body: {}, headers: { 'retry-after': when } });
+  await assert.rejects(() => b.ms.bots.status('b1'), (e) => {
+    assert.ok(e.retryAfter >= 28 && e.retryAfter <= 31, `got ${e.retryAfter}`);
+    return true;
+  });
+});
+
+test('429 is retried after Retry-After', async () => {
+  const { fetchImpl, calls } = stubFetch([
+    { status: 429, body: { message: 'slow down' }, headers: { 'retry-after': '0' } },
+    { status: 200, body: { ok: true } },
+  ]);
+  const ms = new MeetStream({ apiKey: 'k', fetch: fetchImpl, maxRetries: 2 });
+  const out = await ms.bots.status('b1');
+  assert.equal(out.ok, true);
+  assert.equal(calls.length, 2);
+});
+
+test('a Retry-After longer than 60 seconds is thrown, not slept on', async () => {
+  const { fetchImpl, calls } = stubFetch({ status: 429, body: { window: 'hour', retry_after: 1800 }, headers: { 'retry-after': '1800' } });
+  const ms = new MeetStream({ apiKey: 'k', fetch: fetchImpl, maxRetries: 2 });
+  await assert.rejects(() => ms.bots.create({ meeting_link: 'x' }), (e) => e instanceof RateLimitError && e.retryAfter === 1800);
+  assert.equal(calls.length, 1);
+});
+
+test('a 409 with Retry-After (create still saving) is retried with the same key', async () => {
+  const { fetchImpl, calls } = stubFetch([
+    { status: 409, body: { error: 'A request with this Idempotency-Key is still in progress.' }, headers: { 'retry-after': '0' } },
+    { status: 507, body: { bot_id: 'original' } },
+  ]);
+  const ms = new MeetStream({ apiKey: 'k', fetch: fetchImpl, maxRetries: 2 });
+  const bot = await ms.bots.create({ meeting_link: 'x' }, { idempotencyKey: 'key-1' });
+  assert.equal(bot.bot_id, 'original');
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.init.headers['Idempotency-Key'] === 'key-1'));
+});
+
+test('a 409 without Retry-After is a real conflict and is not retried', async () => {
+  const { fetchImpl, calls } = stubFetch({ status: 409, body: { error: 'deduplication_key already used for another meeting', existing_bot_id: 'b0' } });
+  const ms = new MeetStream({ apiKey: 'k', fetch: fetchImpl, maxRetries: 2 });
+  await assert.rejects(() => ms.bots.create({ meeting_link: 'x', deduplication_key: 'k' }), ConflictError);
+  assert.equal(calls.length, 1);
+});
+
+/* ------------------------------------------------- webhook reason values */
+
+test('describeStop explains failure_reason on bot.failed', () => {
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.failed', bot_status: 'Failed', failure_reason: 'meeting_restricted' }), /restricted/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.failed', bot_status: 'Failed', failure_reason: 'sign_in_required' }), /signed-in bot/i);
+  assert.match(describeStop({ event: 'bot.stopped', bot_event: 'bot.failed', bot_status: 'Failed', failure_reason: 'something_new' }), /crashed/i);
+});
+
+test('participant hand events parse like other webhooks', () => {
+  const body = JSON.stringify({
+    event: 'participant_events.raise_hand',
+    timestamp: '2026-11-12T10:00:00Z',
+    data: { data: { action: 'raise_hand', participant: { id: 'p1', name: 'Sid', is_host: false, platform: 'zoom' }, timestamp: { relative: 12.5, absolute: '2026-11-12T10:00:00Z' } }, bot: { id: 'b1' } },
+  });
+  const sig = createHmac('sha256', SECRET).update(body, 'utf8').digest('hex');
+  const parsed = parseWebhook(body, sig, SECRET);
+  assert.equal(parsed.event, 'participant_events.raise_hand');
+  assert.equal(isTerminal(parsed), false);
+  assert.equal(parsed.data.data.action, 'raise_hand');
 });

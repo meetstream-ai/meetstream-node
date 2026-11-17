@@ -131,8 +131,13 @@ These are live-verified. Do not "fix" code that follows them.
 - The bot field is **`meeting_link`**, not `meeting_url`.
 - `in_call_recording_timeout` has a hard floor of **600 seconds**; below it the API returns 400.
 - MIA bots take **only `agent_config_id`**. Adding `socket_connection_url` or `live_audio_required` alongside it is the usual cause of a silent agent.
-- **Video is off by default.** Send `"video_required": false` on every bot unless the user explicitly asks to record video. The API defaults it to `true`, so an omitted field records video, and transcripts, summaries, diarization and speaker timelines all work without it.
-- **When video is on, send a layout.** `recording_config.video_layout` accepts exactly `"speaker_view"` or `"grid_view"` and defaults to `"grid_view"`, so pass `"speaker_view"` explicitly unless the user asks for grid or gallery view. It is ignored when video is off; Google Meet, Teams and Zoom accept both values, and WhatsApp accepts only `"grid_view"`.
+- **Video is off by default.** Send `"video_required": false` on every bot unless the user explicitly asks to record video. The API defaults it to `false`; send it explicitly anyway. Transcripts, summaries, diarization and speaker timelines all work without video.
+- **When video is on, send a layout.** `recording_config.video_layout` defaults to `"grid_view"`, so pass `"speaker_view"` explicitly unless the user asks for grid or gallery view. It is ignored when video is off. Google Meet, Teams and Zoom accept `"speaker_view"` and `"grid_view"`; Google Meet and Teams also accept `"speaker_view_default"` and `"grid_view_default"`; WhatsApp accepts only `"grid_view"`.
+- **Zoom needs no setup.** A Zoom bot needs only the meeting link. `zoom.use_own_app: true` requires the customer's own Zoom app; `false` forces a no-setup join and cannot be combined with `zak_url` or `obf_url`.
+- **Live-bot commands go through `send_command`.** Raise and lower the bot's hand with `{"command": "raise_hand"}` / `{"command": "lower_hand"}` (Google Meet, Zoom, Teams). The bot must be in the meeting, otherwise 409.
+- **`get_speaker_timeline` has two shapes.** Large timelines return `{bot_id, speaker_timeline_url, size_bytes, truncated}` instead of the timeline. Always check for `speaker_timeline_url`.
+- **Honour `Retry-After`.** Rate-limited calls return 429 with `Retry-After`; a create whose idempotency or deduplication key is still being saved returns 409 with `Retry-After`. Retry the latter with the same key.
+- **Errors carry `message`.** Read `message`, then fall back to `error` and to a bare string for older responses.
 - **Per-participant video is opt-in only.** Never set `video_separate_streams` (top level or under `recording_config`) unless the user explicitly asks for per-participant video streams. Per-participant audio (`audio_separate_streams`) is unaffected.
 ## Security
 

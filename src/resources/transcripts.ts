@@ -17,7 +17,8 @@ export class Transcripts {
    * Segments use a `transcript` field, not `text`. Reading the wrong field is
    * the usual reason a transcript "looks empty".
    *
-   * Throws `NotReadyError` on HTTP 202.
+   * Throws `NotReadyError` on HTTP 202. A transcript whose transcription
+   * failed returns a server error; handle a 422 the same way as a 500.
    */
   get(
     transcriptId: string,
@@ -25,6 +26,25 @@ export class Transcripts {
     opts: RequestOptions = {},
   ): Promise<{ transcript?: TranscriptSegment[] } | unknown> {
     return this.http.get(`/transcript/${encodeURIComponent(transcriptId)}/get_transcript`, {
+      ...opts,
+      query: { raw: params.raw ?? false },
+    });
+  }
+
+  /**
+   * A bot's first transcript, by **`bot_id`**, without looking up the
+   * `transcript_id` first. Same response as `get()`.
+   *
+   * Throws `NotReadyError` on HTTP 202, `ConflictError` (409) when the bot
+   * had no transcription or was never admitted, and a server error when
+   * transcription failed (handle a 422 the same way as a 500).
+   */
+  getByBotId(
+    botId: string,
+    params: { raw?: boolean } = {},
+    opts: RequestOptions = {},
+  ): Promise<{ transcript?: TranscriptSegment[] } | unknown> {
+    return this.http.get(`/bots/${encodeURIComponent(botId)}/get_transcript`, {
       ...opts,
       query: { raw: params.raw ?? false },
     });

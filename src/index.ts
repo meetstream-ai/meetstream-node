@@ -1,5 +1,5 @@
 import { HttpClient, type ClientOptions, type RequestOptions, DEFAULT_BASE_URL } from './client.js';
-import { Bots } from './resources/bots.js';
+import { Bots, isSpeakerTimelineDownload } from './resources/bots.js';
 import { Transcripts } from './resources/transcripts.js';
 import { Calendar } from './resources/calendar.js';
 import { Mia } from './resources/mia.js';
@@ -70,12 +70,40 @@ export {
 } from './errors.js';
 
 export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
+export { isSpeakerTimelineDownload };
+export type { CalendarProvider } from './resources/calendar.js';
+export type { ErrorOptions } from './errors.js';
 
 export type {
   VideoLayout,
   Bot,
   BotStatus,
+  BotErrorReason,
+  FailureReason,
+  StopStatus,
   CreateBotParams,
+  ZoomJoinOptions,
+  RealtimeEndpoint,
+  RealtimeEvent,
+  SmallestTranscriptionConfig,
+  SmallestStreamingTranscriptionConfig,
+  SpeakerTimeline,
+  SpeakerTimelineInline,
+  SpeakerTimelineDownload,
+  Screenshot,
+  ScreenshotsPage,
+  ListScreenshotsParams,
+  BotCommand,
+  SendCommandParams,
+  SendCommandResponse,
+  CommandResponse,
+  HandCommandResponse,
+  ScreenshotCommandResponse,
+  ChatCommandResponse,
+  RecordingCommandResponse,
+  UpdateLiveMiaParams,
+  UpdateLiveMiaResponse,
+  MiaLlmProvider,
   CreateMiaParams,
   GoogleMeetSignInOptions,
   TeamsSignInOptions,
@@ -91,4 +119,6 @@ export type {
   MiaTranscriberConfig,
   WebhookEvent,
   WebhookPayload,
+  ParticipantEventPayload,
+  StopReason,
 } from './types.js';
