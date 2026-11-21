@@ -14,8 +14,10 @@ export class Transcripts {
    * Fetch a transcript by **`transcript_id`**, not `bot_id`. Get the id from
    * the `createBot` response, `bots.detail()`, or `listForBot()`.
    *
-   * Segments use a `transcript` field, not `text`. Reading the wrong field is
-   * the usual reason a transcript "looks empty".
+   * Returns a list of segments. The speaker is `participant.name` and the
+   * text is in `words[].text` (some providers also send flat `speaker` /
+   * `transcript`). Read them with `segmentSpeaker()` and `segmentText()`;
+   * reading the wrong field is the usual reason a transcript "looks empty".
    *
    * Throws `NotReadyError` on HTTP 202 (still processing) and
    * `TranscriptFailedError` on HTTP 422: the transcript failed and will not
@@ -26,7 +28,7 @@ export class Transcripts {
     transcriptId: string,
     params: { raw?: boolean } = {},
     opts: RequestOptions = {},
-  ): Promise<{ transcript?: TranscriptSegment[] } | unknown> {
+  ): Promise<TranscriptSegment[] | unknown> {
     return this.http.get(`/transcript/${encodeURIComponent(transcriptId)}/get_transcript`, {
       ...opts,
       query: { raw: params.raw ?? false },
@@ -45,7 +47,7 @@ export class Transcripts {
     botId: string,
     params: { raw?: boolean } = {},
     opts: RequestOptions = {},
-  ): Promise<{ transcript?: TranscriptSegment[] } | unknown> {
+  ): Promise<TranscriptSegment[] | unknown> {
     return this.http.get(`/bots/${encodeURIComponent(botId)}/get_transcript`, {
       ...opts,
       query: { raw: params.raw ?? false },
