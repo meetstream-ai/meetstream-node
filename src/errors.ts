@@ -120,6 +120,16 @@ export class TranscriptFailedError extends MeetStreamError {
   }
 }
 
+/**
+ * 404 from `billing.balance()`: the balance endpoint is not on for this
+ * account yet. Read the balance on https://app.meetstream.ai/billing. Do not
+ * retry.
+ */
+export class BalanceUnavailableError extends NotFoundError {
+  /** Where to see the balance instead. */
+  readonly billingUrl = 'https://app.meetstream.ai/billing';
+}
+
 /** 5xx - transient server error. Safe to retry with backoff. */
 export class ServerError extends MeetStreamError {}
 

@@ -74,6 +74,7 @@ export {
   ServerError,
   NotReadyError,
   TranscriptFailedError,
+  BalanceUnavailableError,
   isInbuiltKeysUnavailable,
 } from './errors.js';
 

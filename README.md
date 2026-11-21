@@ -95,7 +95,7 @@ Bot price: $0.35 per recording hour ($0.25 at volume). The MeetStream transcript
 
 If inbuilt keys are not on for your account yet, the API answers `400` with `MeetStream-managed keys are not available for <section>. Use your own key.` Check with `isInbuiltKeysUnavailable(err)`, then use your own key for that section (setup b). Do not retry the same request.
 
-Setup c is opt-in. Meeting speech reaches an agent that has access to your computer and terminal, so a participant can try prompt injection: keep the lowest access level (`readonly` is the default) and the activation code on. Your computer, your agent and the bridge must stay on for the whole call. Guide: [MIA screen sharing and custom agents](https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents).
+Setup c is opt-in and needs the local agent feature on for your account (`mia.checkLocalAgent()` tells you whether the bridge is reachable). Meeting speech reaches an agent that has access to your computer and terminal, so a participant can try prompt injection: keep the lowest access level (`readonly` is the default) and the activation code on. Your computer, your agent and the bridge must stay on for the whole call. Guide: [MIA screen sharing and custom agents](https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents).
 
 ## Why this SDK
 
@@ -243,7 +243,7 @@ await meetstream.mia.create({
 });
 ```
 
-Your own agent (setup c):
+Your own agent (setup c; needs the local agent feature on for your account):
 
 ```ts
 const mine = await meetstream.mia.create({
@@ -268,9 +268,17 @@ if (check.local_agent.status !== 'ok') throw new Error(`Bridge not ready: ${chec
 <summary><b>Billing</b></summary>
 
 ```ts
-const { balance_usd, customer_type } = await meetstream.billing.balance(); // GET /billing/balance, read only
-// balance_usd is a decimal string such as "12.34", or null for accounts billed by invoice.
+import { BalanceUnavailableError } from '@meetstream/sdk';
+
+try {
+  const { balance_usd, customer_type } = await meetstream.billing.balance(); // GET /billing/balance, read only
+  // balance_usd is a decimal string such as "12.34", or null for accounts billed by invoice.
+} catch (err) {
+  if (err instanceof BalanceUnavailableError) console.log(`See your balance at ${err.billingUrl}`);
+}
 ```
+
+The balance endpoint is available when it is on for your account. Until then it answers `404`, which the SDK raises as `BalanceUnavailableError` (not retried).
 
 Top up at [app.meetstream.ai/billing](https://app.meetstream.ai/billing). A create with low credits returns `403` `Low credits please recharge`; do not retry it in a loop.
 
@@ -404,7 +412,7 @@ await meetstream.http.get('/some/new/endpoint');
 - **Your own agent:** `model.provider: "local_agent"` with a typed `model.local_agent` block.
 - **API v1.10.0 agent options:** `agent.tools` (`screen`), `agent.chat_input`, `agent.quiet_actions`, `agent.speak_only_when_asked`, `agent.desktop`, and `transcriber.language`.
 - **Failed transcripts:** a `422` from `get_transcript` is a `TranscriptFailedError` with `status`, `transcriptStatus` and `reason`.
-- **Billing:** `billing.balance()` for `GET /billing/balance`.
+- **Billing:** `billing.balance()` for `GET /billing/balance`, available when the endpoint is on for your account; a `404` is a `BalanceUnavailableError` that points to the billing page.
 - **Zoom Meeting Direct Connect:** `meetingDirectConnect.create`, `get`, `leave`.
 
 Full history: [CHANGELOG.md](CHANGELOG.md).

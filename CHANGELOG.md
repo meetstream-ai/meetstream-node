@@ -11,10 +11,10 @@ Matches MeetStream API v1.10.0.
 - Agents API: `mia.get(agentConfigId)`, `mia.checkLocalAgent(agentConfigId)` (`GET /mia?check=local_agent`), and `mia.updateLive(botId, params)` (same call as `bots.updateMia`, with `wait_for_ack`). `mia.create` returns a typed `CreateMiaResponse`.
 - `KeySource` (`"meetstream"` | `"user"`) as `key_source` on `transcriber`, `model` and `voice`, for MeetStream's inbuilt keys or your own keys.
 - `isInbuiltKeysUnavailable(err)` detects the `400` the API returns while inbuilt keys are not on for an account.
-- `model.provider: "local_agent"` with a typed `model.local_agent` block (`url`, `label`, `access`, `require_code`, `owner_only`, `owner_names`, `owner_ids`, `timeout_s`) and `LocalAgentCheck`.
+- `model.provider: "local_agent"` (needs the local agent feature on for the account) with a typed `model.local_agent` block (`url`, `label`, `access`, `require_code`, `owner_only`, `owner_names`, `owner_ids`, `timeout_s`) and `LocalAgentCheck`.
 - Agent options: `agent.tools` (`current_time`, `weather_now`, `screen`), `agent.desktop`, `agent.chat_input`, `agent.quiet_actions`, `agent.speak_only_when_asked`, `agent.custom_functions`. `transcriber.language` is documented (unset, `multi` or `auto` = automatic detection). New `MiaVoiceConfig` type.
 - `TranscriptFailedError`: a `422` from `get_transcript` carries `status`, `transcriptStatus`, `transcriptId` and `reason`. It is not retried, and `transcripts.waitFor` stops at once.
-- `billing.balance()` for `GET /billing/balance` (`customer_type`, `balance_usd`, `currency`).
+- `billing.balance()` for `GET /billing/balance` (`customer_type`, `balance_usd`, `currency`). Available when the endpoint is on for the account; a `404` raises `BalanceUnavailableError` (with `billingUrl`), not retried.
 - `meetingDirectConnect.create`, `get` and `leave` (Zoom Meeting Direct Connect), as in the Python SDK.
 
 ### Changed

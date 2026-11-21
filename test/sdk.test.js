@@ -22,6 +22,7 @@ import {
   describeStop,
   isSpeakerTimelineDownload,
   TranscriptFailedError,
+  BalanceUnavailableError,
   isInbuiltKeysUnavailable,
 } from '../dist/esm/index.js';
 
@@ -766,4 +767,15 @@ test('meetingDirectConnect create, get and leave use the direct connect routes',
   assert.match(calls[1].url, /\/api\/v1\/meeting_direct_connect\/r1$/);
   assert.equal(calls[2].init.method, 'POST');
   assert.match(calls[2].url, /\/api\/v1\/meeting_direct_connect\/r1\/leave$/);
+});
+
+test('billing.balance maps a 404 to BalanceUnavailableError with the billing page, and does not retry', async () => {
+  const { ms, calls } = client({ status: 404, body: { message: 'Route not found' } }, { maxRetries: 2 });
+  const err = await ms.billing.balance().catch((e) => e);
+  assert.ok(err instanceof BalanceUnavailableError);
+  assert.ok(err instanceof NotFoundError);
+  assert.equal(err.status, 404);
+  assert.equal(err.billingUrl, 'https://app.meetstream.ai/billing');
+  assert.match(err.message, /app\.meetstream\.ai\/billing/);
+  assert.equal(calls.length, 1);
 });

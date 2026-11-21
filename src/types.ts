@@ -554,6 +554,9 @@ export type LocalAgentAccess = 'readonly' | 'confirm' | 'full';
  * keep the activation code on, and keep the computer, the agent and the
  * bridge running for the whole call.
  *
+ * Needs the local agent feature on for your account. Run
+ * `mia.checkLocalAgent()` before the call.
+ *
  * Docs: https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents
  */
 export interface MiaLocalAgentConfig {
@@ -779,7 +782,10 @@ export interface UpdateLiveMiaParams {
 
 /* --------------------------------------------------------------- billing */
 
-/** `GET /billing/balance`: your prepaid balance. Read only. */
+/**
+ * `GET /billing/balance`: your prepaid balance. Read only. Available when the
+ * endpoint is on for your account; see `BalanceUnavailableError`.
+ */
 export interface BillingBalance {
   /** For example `pay_as_you_go`, or `invoice` for accounts billed by invoice. */
   customer_type: 'pay_as_you_go' | 'invoice' | (string & {});
