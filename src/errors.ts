@@ -94,6 +94,32 @@ export class RateLimitError extends MeetStreamError {
   }
 }
 
+/**
+ * 422 from `get_transcript` - the transcript **failed** and will not become
+ * ready. This is a final answer, not a server error: do not retry the same
+ * read. Fix the cause (for example a provider key the provider rejected, or a
+ * provider usage limit), then run `transcripts.transcribeBotAudio()` for a new
+ * transcript.
+ *
+ * Docs: https://docs.meetstream.ai/errors#failed-transcript-422
+ */
+export class TranscriptFailedError extends MeetStreamError {
+  /** The transcript status the API reported, normally `Failed`. */
+  readonly transcriptStatus: string;
+  /** The id of the failed transcript, when the API sent it. */
+  readonly transcriptId?: string;
+  /** Why it failed, without the `Transcript processing failed:` prefix. */
+  readonly reason: string;
+
+  constructor(message: string, opts: ErrorOptions = {}) {
+    super(message, opts);
+    const b = opts.body && typeof opts.body === 'object' ? (opts.body as Record<string, unknown>) : {};
+    this.transcriptStatus = typeof b['transcript_status'] === 'string' ? b['transcript_status'] : 'Failed';
+    if (typeof b['transcript_id'] === 'string') this.transcriptId = b['transcript_id'];
+    this.reason = message.replace(/^Transcript processing failed:?\s*/i, '') || message;
+  }
+}
+
 /** 5xx - transient server error. Safe to retry with backoff. */
 export class ServerError extends MeetStreamError {}
 
@@ -109,6 +135,23 @@ export class ServerError extends MeetStreamError {}
  */
 export class NotReadyError extends MeetStreamError {}
 
+function isFailedTranscriptBody(body: unknown): boolean {
+  return !!body && typeof body === 'object' && typeof (body as Record<string, unknown>)['transcript_status'] === 'string';
+}
+
+/**
+ * True when the API refused MeetStream's inbuilt keys because they are not on
+ * for your account yet. The message then reads, for example,
+ * `MeetStream-managed keys are not available for model. Use your own key.`
+ *
+ * Use your own provider key for that section (`key_source: "user"`, or omit
+ * `key_source`) and continue. Do not retry the same request.
+ */
+export function isInbuiltKeysUnavailable(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /MeetStream-managed keys are not available/i.test(message);
+}
+
 /** Map an HTTP status onto the right error class. */
 export function errorForStatus(
   status: number,
@@ -123,6 +166,9 @@ export function errorForStatus(
     case 403: return new PermissionError(message, base);
     case 404: return new NotFoundError(message, base);
     case 409: return new ConflictError(message, base);
+    case 422:
+      if (isFailedTranscriptBody(opts.body)) return new TranscriptFailedError(message, base);
+      return new MeetStreamError(message, base);
     case 429: return new RateLimitError(message, base);
     default:
       if (status >= 500) return new ServerError(message, base);

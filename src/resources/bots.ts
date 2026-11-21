@@ -67,8 +67,8 @@ export class Bots {
 
   /**
    * @deprecated The MeetStream REST API has no meeting summary endpoint, so
-   * this call returns 404. Fetch the transcript and summarize it yourself, or
-   * use a MIA agent. Kept so existing code still compiles.
+   * this call returns 404. Fetch the transcript and summarize it yourself.
+   * Kept so existing code still compiles.
    */
   summary(botId: string, opts: RequestOptions = {}): Promise<unknown> {
     return this.http.get(`/bots/${encodeURIComponent(botId)}/summary`, opts);

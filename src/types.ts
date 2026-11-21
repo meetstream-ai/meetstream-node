@@ -515,18 +515,79 @@ export interface TranscriptSegment {
 /* ------------------------------------------------------------------- mia */
 
 /**
+ * Who supplies the provider key for a pipeline section (`transcriber`,
+ * `model`, `voice`).
+ *
+ * - `"meetstream"`: MeetStream's inbuilt keys. Send no `api_key`. Pipeline
+ *   mode only. Inbuilt keys cover OpenAI (LLM, speech and voice models) and
+ *   Deepgram (speech-to-text) today. The per-hour price of the model you pick
+ *   is added to the agent price; the dashboard agent editor shows the rate.
+ *   While inbuilt keys are not on for your account, the API answers 400
+ *   `MeetStream-managed keys are not available for <section>. Use your own key.`
+ *   (see {@link isInbuiltKeysUnavailable}). Use your own key then.
+ * - `"user"` (or omitted): your own provider key, saved in the dashboard
+ *   integrations. The provider bills you for model usage.
+ *
+ * Docs: https://docs.meetstream.ai/guides/mia/pricing-and-keys
+ */
+export type KeySource = 'meetstream' | 'user';
+
+/**
  * LLM provider for `model.provider`. `anthropic` (Claude) is pipeline mode
  * only and uses the Anthropic key saved in your model integrations.
+ * `local_agent` makes your own agent (Claude Code, Codex, Hermes and others,
+ * through the MeetStream Agent Kit) the brain of the voice agent.
  */
-export type MiaLlmProvider = 'openai' | 'anthropic' | 'xai' | 'google' | (string & {});
+export type MiaLlmProvider = 'openai' | 'anthropic' | 'xai' | 'google' | 'local_agent' | (string & {});
+
+/** Access level of a local agent. `readonly` is the default. */
+export type LocalAgentAccess = 'readonly' | 'confirm' | 'full';
+
+/**
+ * `model.local_agent`, with `model.provider: "local_agent"` (pipeline mode
+ * only). Your agent runs on your own computer, on your own subscription, and
+ * MeetStream charges no model tokens for its replies. `transcriber` and
+ * `voice` are still required.
+ *
+ * Meeting speech and chat reach an agent that can use your computer, so treat
+ * them as untrusted input: keep the lowest access level that does the job,
+ * keep the activation code on, and keep the computer, the agent and the
+ * bridge running for the whole call.
+ *
+ * Docs: https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents
+ */
+export interface MiaLocalAgentConfig {
+  /** Public HTTPS address of your Agent Kit bridge (tunnel). Up to 300 characters. */
+  url: string;
+  /** Display label. Up to 40 characters. */
+  label?: string;
+  /** Default `readonly`. Your computer sets the highest level; this can only lower it. */
+  access?: LocalAgentAccess;
+  /** Activation code in the meeting chat before the agent acts. Default `true`. */
+  require_code?: boolean;
+  /** Only the owner can start a turn. Default `true`. */
+  owner_only?: boolean;
+  /** Up to 10 display names. Guests can copy names, so prefer the activation code. */
+  owner_names?: string[];
+  /** Up to 10 participant ids. */
+  owner_ids?: string[];
+  /** Seconds to wait for a reply, 10 to 600. Default 120. */
+  timeout_s?: number;
+  [k: string]: unknown;
+}
 
 export interface MiaModelConfig {
   provider?: MiaLlmProvider;
   /**
    * Model name. For `anthropic`, for example `claude-haiku-5-5` (fastest
-   * replies) or `claude-sonnet-5-5`.
+   * replies) or `claude-sonnet-5-5`. Optional with `local_agent`.
    */
   model?: string;
+  /** Inbuilt keys or your own key. Pipeline mode only. See {@link KeySource}. */
+  key_source?: KeySource;
+  /** Your own provider key, when you do not use a saved integration. Never with `key_source: "meetstream"`. */
+  api_key?: string;
+  /** Optional with `local_agent`. */
   system_prompt?: string;
   /** What the agent says on joining. Set it, and disclose that it is an AI. */
   first_message?: string;
@@ -546,14 +607,24 @@ export interface MiaModelConfig {
   frequency_penalty?: number;
   /** Not supported with `anthropic` (400). */
   presence_penalty?: number;
+  /** Required with `provider: "local_agent"`. */
+  local_agent?: MiaLocalAgentConfig;
   [k: string]: unknown;
 }
 
 export interface MiaTranscriberConfig {
-  /** For example `deepgram`, `assemblyai`, `openai`, `xai` or `smallest`. */
+  /** For example `deepgram`, `assemblyai`, `openai` or `xai`. */
   provider?: string;
   model?: string;
+  /**
+   * Speech recognition language, for example `en` (the default) or `es`.
+   * Leave it unset, or use `multi` or `auto`, for automatic language detection.
+   */
   language?: string;
+  /** Inbuilt keys or your own key. See {@link KeySource}. */
+  key_source?: KeySource;
+  /** Your own provider key, when you do not use a saved integration. */
+  api_key?: string;
   /**
    * Product names, people's names and jargon. This one field fixes most
    * "it mishears our company name" complaints.
@@ -562,12 +633,46 @@ export interface MiaTranscriberConfig {
   [k: string]: unknown;
 }
 
+/** `voice` (text-to-speech). Pipeline mode only; in realtime mode the voice lives inside `model`. */
+export interface MiaVoiceConfig {
+  /** For example `openai`, `elevenlabs` or `xai`. Required. */
+  provider?: string;
+  /** Required. */
+  voice_id?: string;
+  model?: string;
+  speed?: number;
+  /** Inbuilt keys or your own key. See {@link KeySource}. */
+  key_source?: KeySource;
+  /** Your own provider key, when you do not use a saved integration. */
+  api_key?: string;
+  [k: string]: unknown;
+}
+
+/**
+ * Built-in tools for `agent.tools`. `screen` (Google Meet, a vision-capable
+ * model) lets the agent present and work a live web page in the meeting.
+ */
+export type MiaBuiltInTool = 'current_time' | 'weather_now' | 'screen' | (string & {});
+
 export interface MiaAgentConfig {
   response_modality?: string;
-  /** Tools the agent can call mid-conversation. */
-  tools?: unknown[];
+  /** Built-in tools, for example `["screen"]`. */
+  tools?: MiaBuiltInTool[];
+  /** Your HTTPS functions the agent can call. Up to 20. */
+  custom_functions?: unknown[];
   /** MCP servers the agent can reach. This is what turns a talking bot into one that does work. */
   mcp_servers?: unknown[];
+  /**
+   * Google Meet, with `tools: ["screen"]`: the bot presents its own desktop
+   * (editor, terminal, spreadsheet). Opt-in. Default `false`.
+   */
+  desktop?: boolean;
+  /** Treat chat messages that name the agent as requests, and answer in the chat. Default `false`. */
+  chat_input?: boolean;
+  /** Do the task without talking through each step. Default `false`. */
+  quiet_actions?: boolean;
+  /** Act during the meeting, but speak only when addressed by name. Pipeline mode. Default `false`. */
+  speak_only_when_asked?: boolean;
   enable_interruptions?: boolean;
   interruption_mode?: string;
   false_interruption_timeout?: number;
@@ -587,19 +692,69 @@ export interface MiaAgentConfig {
 
 export interface CreateMiaParams {
   agent_name: string;
-  /** `pipeline` gives you per-layer control and wake words; `realtime` is lowest latency. */
+  /** `pipeline` gives you per-layer control, wake words, inbuilt keys and `local_agent`; `realtime` is lowest latency. */
   mode?: 'pipeline' | 'realtime' | (string & {});
   model?: MiaModelConfig;
   /** Pipeline mode only. In realtime mode the voice lives inside `model`. */
-  voice?: { provider?: string; voice_id?: string; model?: string; speed?: number; [k: string]: unknown };
+  voice?: MiaVoiceConfig;
   /** Pipeline mode only. */
   transcriber?: MiaTranscriberConfig;
   agent?: MiaAgentConfig;
   audio?: { sample_rate?: number; num_channels?: number; [k: string]: unknown };
   /** Pipeline mode only. */
   wake_word?: { enabled?: boolean; words?: string[]; timeout?: number; [k: string]: unknown };
-  /** Gives the agent a visual avatar in the meeting video. Confirmed working. */
+  /** Gives the agent a visual avatar in the meeting video. */
   Avatar?: { provider?: string; enabled?: boolean; avatar_id?: string; [k: string]: unknown };
+  [k: string]: unknown;
+}
+
+/**
+ * Body of `mia.update()` (`PUT /mia`). `PUT` replaces each block you send,
+ * so send the whole `agent` block. A masked secret (`****` plus the last four
+ * characters) sent back keeps the stored value.
+ */
+export type UpdateMiaConfigParams = { agent_config_id: string } & Partial<CreateMiaParams>;
+
+/** A saved agent config as the API returns it. Secrets come back masked. */
+export interface AgentConfig {
+  AgentConfigID?: string;
+  AgentName?: string;
+  Mode?: string;
+  Model?: Record<string, unknown>;
+  Voice?: Record<string, unknown>;
+  Transcriber?: Record<string, unknown>;
+  CreatedAt?: string;
+  UpdatedAt?: string;
+  [k: string]: unknown;
+}
+
+/** Response of `mia.create()`. */
+export interface CreateMiaResponse {
+  message?: string;
+  agent_config_id: string;
+  agent_config?: AgentConfig;
+  [k: string]: unknown;
+}
+
+/** Result of `mia.checkLocalAgent()`. */
+export interface LocalAgentCheck {
+  local_agent: {
+    /**
+     * `ok`, or why the bridge cannot be used: `login_expired`,
+     * `not_installed`, `no_token`, `token_rejected`, `unreachable`,
+     * `bad_url`, `not_local_agent`.
+     */
+    status:
+      | 'ok' | 'login_expired' | 'not_installed' | 'no_token' | 'token_rejected'
+      | 'unreachable' | 'bad_url' | 'not_local_agent' | (string & {});
+    latency_ms?: number;
+    agent?: string;
+    label?: string;
+    login?: unknown;
+    max_access?: LocalAgentAccess | (string & {});
+    warm?: boolean;
+    [k: string]: unknown;
+  };
   [k: string]: unknown;
 }
 
@@ -608,18 +763,44 @@ export interface CreateMiaParams {
  * of the update fields. Saved agent configs are not changed.
  */
 export interface UpdateLiveMiaParams {
-  /** New values for the prompt's template variables. Scalars only. */
+  /** New values for the prompt's template variables. Scalars only. Up to 50 keys. */
   agent_config_params?: Record<string, string | number | boolean>;
   /** Replace the system prompt. Up to 32000 characters. */
   system_prompt?: string;
   wake_word_enabled?: boolean;
-  /** Non-empty list. To turn the wake word off, send `wake_word_enabled: false`. */
+  /** Non-empty list, up to 10. To turn the wake word off, send `wake_word_enabled: false`. */
   wake_words?: string[];
   /**
    * Wait for the agent to apply the update and return its result
    * (`applied`, `partially_applied` or `failed`) instead of `accepted`.
    */
   wait_for_ack?: boolean;
+}
+
+/* --------------------------------------------------------------- billing */
+
+/** `GET /billing/balance`: your prepaid balance. Read only. */
+export interface BillingBalance {
+  /** For example `pay_as_you_go`, or `invoice` for accounts billed by invoice. */
+  customer_type: 'pay_as_you_go' | 'invoice' | (string & {});
+  /**
+   * Balance in US dollars as a decimal string, for example `"12.34"`.
+   * `null` for accounts billed by invoice, which have no prepaid balance.
+   */
+  balance_usd: string | null;
+  currency: 'USD' | (string & {});
+  [k: string]: unknown;
+}
+
+/* ----------------------------------------------- failed transcript (422) */
+
+/** Body of a `422` from `get_transcript`: the transcript failed and will not become ready. */
+export interface FailedTranscriptBody {
+  /** `Transcript processing failed: <reason>`. */
+  message: string;
+  transcript_status: 'Failed' | (string & {});
+  transcript_id?: string;
+  [k: string]: unknown;
 }
 
 /* -------------------------------------------------------------- webhooks */
