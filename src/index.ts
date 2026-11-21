@@ -23,7 +23,8 @@ import { MeetingDirectConnect } from './resources/meeting-direct-connect.js';
  *   },
  * });
  *
- * const transcript = await meetstream.transcripts.waitFor(bot.transcript_id!);
+ * const segments = await meetstream.transcripts.waitFor(bot.transcript_id!);
+ * for (const s of segments as TranscriptSegment[]) console.log(segmentSpeaker(s), segmentText(s));
  * ```
  */
 export class MeetStream {
@@ -80,6 +81,7 @@ export {
 
 export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
 export { isSpeakerTimelineDownload };
+export { segmentSpeaker, segmentText, segmentStart } from './transcript.js';
 export type { CalendarProvider } from './resources/calendar.js';
 export type { ErrorOptions } from './errors.js';
 
@@ -130,6 +132,9 @@ export type {
   RecordingConfig,
   AutomaticLeaveConfig,
   TranscriptSegment,
+  TranscriptWord,
+  TranscriptParticipant,
+  TranscriptTimestamp,
   TranscriptProviderConfig,
   TranscriptionProvider,
   PostCallTranscriptionProvider,

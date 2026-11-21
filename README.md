@@ -26,7 +26,7 @@ Pick a flow before you write code. Guide: [Integration paths](https://docs.meets
 |---|---|---|
 | **1. Recording only** (Bot API) | Send a bot to Zoom, Google Meet or Microsoft Teams. Get recordings, transcripts, participants, chat and webhooks after the call, or live data during the call. Start here unless you want an agent in the meeting. | Bot price |
 | **2. Agents in meetings, your own stack** (recommended first for an agent) | **2a. Bridge server:** the bot streams live audio to your server, and your server sends audio, chat and images back. You run your own speech-to-text, LLM and voice, hosted or local. **2b. Your own agent as the brain:** Claude Code, Codex, Hermes, OpenClaw and others answer through `model.provider: "local_agent"` and the Agent Kit. | 2a: bot price only. 2b: bot price + $0.25 agent infrastructure. MeetStream charges no model tokens in either. |
-| **3. Managed agent infrastructure** (Agents API) | MeetStream hosts the voice agent (API name: MIA). **3a.** MeetStream's inbuilt keys (OpenAI and Deepgram today). **3b.** Your own provider keys. | Bot price + $0.25 agent infrastructure + the models you pick |
+| **3. Managed agent infrastructure** (Agents API) | MeetStream hosts the voice agent (API name: MIA). **3a.** MeetStream's inbuilt keys. Pipeline: OpenAI + Deepgram (Deepgram speech-to-text; OpenAI LLM and voice). Realtime: OpenAI only. Any other provider: bring your own key. **3b.** Your own provider keys. | Bot price + $0.25 agent infrastructure + the models you pick |
 
 Bot price: $0.35 per recording hour ($0.25 at volume). The MeetStream transcription add-on is $0.10 per hour; it is waived when you use your own provider key. See [pricing](https://meetstream.ai/pricing).
 
@@ -127,7 +127,7 @@ const agent = await meetstream.mia.create({
 await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config_id });
 ```
 
-- **3a. MeetStream's inbuilt keys.** Set `key_source: "meetstream"` on each pipeline section (`transcriber`, `model`, `voice`), with no `api_key`. Pipeline mode only. Inbuilt keys cover OpenAI (LLM, speech and voice models) and Deepgram (speech-to-text) today; for any other provider, add your own keys.
+- **3a. MeetStream's inbuilt keys.** Set `key_source: "meetstream"` on each pipeline section (`transcriber`, `model`, `voice`), with no `api_key`. Inbuilt keys per mode: Pipeline: OpenAI + Deepgram (Deepgram speech-to-text; OpenAI LLM and voice). Realtime: OpenAI only. Any other provider: bring your own key.
 - **3b. Your own keys.** Add your provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs and others in the docs) under Integrations, and pick any supported model. Use `key_source: "user"` or leave it out. Your provider bills you for model usage.
 - **Price:** bot price + $0.25 agent infrastructure + the per-hour price of each model you pick (with 3b, your provider bills the models). The dashboard agent editor shows the rate before the bot runs. See [Voice agent pricing and keys](https://docs.meetstream.ai/guides/mia/pricing-and-keys) and the [MIA API guide](https://docs.meetstream.ai/guides/mia/mia-api-guide).
 
@@ -145,7 +145,7 @@ The MeetStream API has a handful of behaviours that look like bugs until you kno
 | **`507` looks like a failure** but is an idempotent replay | Resolves as success, returning the original resource |
 | **Streaming-only providers return `202` forever** - no post-call transcript ever exists | `waitFor()` is always bounded and tells you exactly why it gave up |
 | **Transcripts are keyed by `transcript_id`**, not `bot_id` | `transcripts.get()` takes the right id, and the types say so |
-| **Segments use `transcript`, not `text`** | Typed, so the wrong field is a compile error |
+| **Speaker is `participant.name`, text is `words[].text`** | Typed as `TranscriptSegment`; `segmentSpeaker()` / `segmentText()` read it (and the flat `speaker` / `transcript` shape) |
 | **`remove_bot` is a `GET`** | `bots.remove()` handles it |
 | **REST uses `Token`, the MCP server uses `Bearer`** | Correct scheme sent automatically |
 | **MIA takes only `agent_config_id`** | Documented on the type; extra bridge fields are the usual cause of a silent agent |
@@ -221,6 +221,15 @@ await meetstream.transcripts.getByBotId(botId);          // first transcript, no
 await meetstream.transcripts.waitFor(transcriptId, { timeoutMs: 900_000 });
 await meetstream.transcripts.listForBot(botId);
 await meetstream.transcripts.transcribeBotAudio(botId);  // rescue a streaming-only bot
+```
+
+Each segment names the speaker in `participant.name` and holds the text in `words[].text`:
+
+```ts
+import { segmentSpeaker, segmentText, type TranscriptSegment } from '@meetstream/sdk';
+
+const segments = (await meetstream.transcripts.get(transcriptId)) as TranscriptSegment[];
+for (const s of segments) console.log(`${segmentSpeaker(s)}: ${segmentText(s)}`);
 ```
 
 </details>
