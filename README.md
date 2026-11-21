@@ -2,7 +2,7 @@
 
 # MeetStream SDK for TypeScript
 
-**Send AI bots into Zoom, Google Meet and Microsoft Teams.** Record, transcribe, summarize and stream meetings, and run [voice agents](#path-2-agents-api-voice-agents-fastest-path) that talk back.
+**Send AI bots into Zoom, Google Meet and Microsoft Teams.** Record, transcribe, summarize and stream meetings, and run [voice agents](#flow-2-agents-in-meetings-your-own-stack) that talk back.
 
 [![npm](https://img.shields.io/npm/v/@meetstream/sdk?style=flat-square&color=fd6316)](https://www.npmjs.com/package/@meetstream/sdk)
 [![Docs](https://img.shields.io/badge/docs-docs.meetstream.ai-45689f?style=flat-square)](https://docs.meetstream.ai)
@@ -18,16 +18,21 @@ npm install @meetstream/sdk
 
 Node 18.17+. ESM and CommonJS. **Zero runtime dependencies.**
 
-## Two ways to integrate
+## Three ways to integrate
 
-MeetStream has two APIs. Pick one before you write code.
+Pick a flow before you write code. Guide: [Integration paths](https://docs.meetstream.ai/guides/introduction/integration-paths).
 
-1. **Bot API: meeting bots and recording.** Send a bot to Zoom, Google Meet or Microsoft Teams. Get recordings, transcripts, participants, chat and webhooks after the call, or live data during the call. Start here unless you want an agent that talks.
-2. **Agents API: voice agents in the meeting.** A voice agent (API name: MIA) rides on the bot. It hears the meeting and answers by voice, in the chat, or with tool calls.
+| Flow | What it is | Price per meeting hour |
+|---|---|---|
+| **1. Recording only** (Bot API) | Send a bot to Zoom, Google Meet or Microsoft Teams. Get recordings, transcripts, participants, chat and webhooks after the call, or live data during the call. Start here unless you want an agent in the meeting. | Bot price |
+| **2. Agents in meetings, your own stack** (recommended first for an agent) | **2a. Bridge server:** the bot streams live audio to your server, and your server sends audio, chat and images back. You run your own speech-to-text, LLM and voice, hosted or local. **2b. Your own agent as the brain:** Claude Code, Codex, Hermes, OpenClaw and others answer through `model.provider: "local_agent"` and the Agent Kit. | 2a: bot price only. 2b: bot price + $0.25 agent infrastructure. MeetStream charges no model tokens in either. |
+| **3. Managed agent infrastructure** (Agents API) | MeetStream hosts the voice agent (API name: MIA). **3a.** MeetStream's inbuilt keys (OpenAI and Deepgram today). **3b.** Your own provider keys. | Bot price + $0.25 agent infrastructure + the models you pick |
 
-Guide: [Two ways to integrate](https://docs.meetstream.ai/guides/introduction/integration-paths).
+Bot price: $0.35 per recording hour ($0.25 at volume). The MeetStream transcription add-on is $0.10 per hour; it is waived when you use your own provider key. See [pricing](https://meetstream.ai/pricing).
 
-### Path 1: Bot API (fastest path)
+Want an agent but not sure which flow? Run your own stack (flow 2, any models, local ones included), or let MeetStream host it (flow 3, no infrastructure work).
+
+### Flow 1: Recording only (Bot API)
 
 First decide: do you need notes **after the call** (post-call), or something **during the call** (live)?
 
@@ -65,9 +70,48 @@ await meetstream.bots.raiseHand(botId); // the bot must be in the meeting (409 o
 
 Get a key at [app.meetstream.ai/api-key](https://app.meetstream.ai/api-key).
 
-### Path 2: Agents API, voice agents (fastest path)
+### Flow 2: Agents in meetings, your own stack
 
-1. Save an agent config. 2. Send a bot with its `agent_config_id`. Nothing else is needed on the bot.
+#### 2a. Bridge server
+
+The bot opens two WebSockets to your server: live meeting audio comes in on `live_audio_required`, and the meeting control socket (`socket_connection_url`) carries the audio, chat, images and interrupts that you send back. Your server runs the speech-to-text, LLM and voice, hosted or local (for example Parakeet for local speech-to-text, a local LLM and a local TTS). MeetStream charges the bot price only: no agent infrastructure and no model tokens.
+
+```ts
+await meetstream.bots.create({
+  meeting_link: 'https://meet.google.com/abc-defg-hij',
+  bot_name: 'Assistant',
+  live_audio_required: { websocket_url: 'wss://your-bridge.example.com/bridge/audio' },  // audio in
+  socket_connection_url: { websocket_url: 'wss://your-bridge.example.com/bridge' },      // audio, chat, images out
+});
+```
+
+Starter: [MeetStream Bridge](https://github.com/meetstream-ai/meetstream-agent) (FastAPI, OpenAI Realtime by default; swap in your own or local models). Guides: [Bridge server architecture](https://docs.meetstream.ai/guides/websockets/bridge-server-architecture), [Real-time audio streaming](https://docs.meetstream.ai/guides/websockets/real-time-audio-streaming), [Meeting control patterns](https://docs.meetstream.ai/guides/websockets/meeting-control-patterns).
+
+#### 2b. Your own agent as the brain (Agent Kit)
+
+Your agent (Claude Code, Codex, Hermes, OpenClaw and others) runs on your computer or your own subscription and writes what the voice agent says. Run the [MeetStream Agent Kit](https://github.com/meetstream-ai/agent-kit) bridge (`meetstream-agent-kit` on PyPI), save an agent with `model.provider: "local_agent"`, then send a bot with its `agent_config_id`. Price: bot price + $0.25 agent infrastructure; MeetStream charges no model tokens for your agent's reasoning.
+
+```ts
+const mine = await meetstream.mia.create({
+  agent_name: 'My Claude Code',
+  mode: 'pipeline',
+  transcriber: { provider: 'deepgram' },
+  voice: { provider: 'openai', voice_id: 'coral' },
+  model: {
+    provider: 'local_agent',
+    local_agent: { url: 'https://your-tunnel.example.com', access: 'readonly', require_code: true },
+  },
+});
+const check = await meetstream.mia.checkLocalAgent(mine.agent_config_id);
+if (check.local_agent.status !== 'ok') throw new Error(`Bridge not ready: ${check.local_agent.status}`);
+await meetstream.bots.create({ meeting_link, agent_config_id: mine.agent_config_id });
+```
+
+Flow 2b is opt-in and needs the local agent feature on for your account. Meeting speech reaches an agent that has access to your computer and terminal, so a participant can try prompt injection: keep the lowest access level (`readonly` is the default) and the activation code on. Your computer, your agent and the bridge must stay on for the whole call. Guide: [MIA screen sharing and custom agents](https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents).
+
+### Flow 3: Managed agent infrastructure (Agents API)
+
+MeetStream hosts the voice agent (API name: MIA). 1. Save an agent config. 2. Send a bot with its `agent_config_id`. Nothing else is needed on the bot.
 
 ```ts
 const agent = await meetstream.mia.create({
@@ -83,19 +127,13 @@ const agent = await meetstream.mia.create({
 await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config_id });
 ```
 
-### Voice agent setups and pricing
+- **3a. MeetStream's inbuilt keys.** Set `key_source: "meetstream"` on each pipeline section (`transcriber`, `model`, `voice`), with no `api_key`. Pipeline mode only. Inbuilt keys cover OpenAI (LLM, speech and voice models) and Deepgram (speech-to-text) today; for any other provider, add your own keys.
+- **3b. Your own keys.** Add your provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs and others in the docs) under Integrations, and pick any supported model. Use `key_source: "user"` or leave it out. Your provider bills you for model usage.
+- **Price:** bot price + $0.25 agent infrastructure + the per-hour price of each model you pick (with 3b, your provider bills the models). The dashboard agent editor shows the rate before the bot runs. See [Voice agent pricing and keys](https://docs.meetstream.ai/guides/mia/pricing-and-keys) and the [MIA API guide](https://docs.meetstream.ai/guides/mia/mia-api-guide).
 
-| Setup | What you do | Price per meeting hour |
-|---|---|---|
-| **a. MeetStream's inbuilt keys** (default) | Pick the modules (speech-to-text, LLM, voice, or only the LLM) and the models. Set `key_source: "meetstream"` on each pipeline section, with no `api_key`. No provider account needed. Inbuilt keys cover OpenAI (LLM, speech and voice models) and Deepgram (speech-to-text) today. | Bot price + $0.25 agent infrastructure + the per-hour price of each model you pick. The dashboard agent editor shows the rate before the bot runs. |
-| **b. Your own keys** | Add your provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs and others in the docs) under Integrations, and pick any supported model. Use `key_source: "user"` or leave it out. | Bot price + $0.25 agent infrastructure. Your provider bills you for model usage. |
-| **c. Your own agent** | Your agent (Claude Code, Codex, Hermes, OpenClaw and others) runs on your computer or your own subscription and writes what the voice agent says. Set `model.provider: "local_agent"` and run the [MeetStream Agent Kit](https://github.com/meetstream-ai/agent-kit) bridge. | Bot price + $0.25 agent infrastructure. MeetStream charges no model tokens for your agent's reasoning. |
+If inbuilt keys are not on for your account yet, the API answers `400` with `MeetStream-managed keys are not available for <section>. Use your own key.` Check with `isInbuiltKeysUnavailable(err)`, then use your own key for that section (3b). Do not retry the same request.
 
-Bot price: $0.35 per recording hour ($0.25 at volume). The MeetStream transcription add-on is $0.10 per hour; it is waived when you use your own provider key. See [Voice agent pricing and keys](https://docs.meetstream.ai/guides/mia/pricing-and-keys) and [pricing](https://meetstream.ai/pricing).
-
-If inbuilt keys are not on for your account yet, the API answers `400` with `MeetStream-managed keys are not available for <section>. Use your own key.` Check with `isInbuiltKeysUnavailable(err)`, then use your own key for that section (setup b). Do not retry the same request.
-
-Setup c is opt-in and needs the local agent feature on for your account (`mia.checkLocalAgent()` tells you whether the bridge is reachable). Meeting speech reaches an agent that has access to your computer and terminal, so a participant can try prompt injection: keep the lowest access level (`readonly` is the default) and the activation code on. Your computer, your agent and the bridge must stay on for the whole call. Guide: [MIA screen sharing and custom agents](https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents).
+A MIA bot takes only `agent_config_id`. Never add `live_audio_required` or `socket_connection_url` to it: that is the usual cause of a silent agent. Flows 2a and 3 are separate bots.
 
 ## Why this SDK
 
@@ -243,22 +281,7 @@ await meetstream.mia.create({
 });
 ```
 
-Your own agent (setup c; needs the local agent feature on for your account):
-
-```ts
-const mine = await meetstream.mia.create({
-  agent_name: 'My Claude Code',
-  mode: 'pipeline',
-  transcriber: { provider: 'deepgram' },
-  voice: { provider: 'openai', voice_id: 'coral' },
-  model: {
-    provider: 'local_agent',
-    local_agent: { url: 'https://your-tunnel.example.com', access: 'readonly', require_code: true },
-  },
-});
-const check = await meetstream.mia.checkLocalAgent(mine.agent_config_id);
-if (check.local_agent.status !== 'ok') throw new Error(`Bridge not ready: ${check.local_agent.status}`);
-```
+Your own agent (flow 2b) is set up in [Flow 2b](#2b-your-own-agent-as-the-brain-agent-kit) above.
 
 `boostwords` on the transcriber fixes most "it mishears our company name" complaints, and `mcp_servers` is what turns a talking bot into one that can do work mid-call.
 
@@ -429,7 +452,8 @@ Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Latest docs
 
-- [Two ways to integrate](https://docs.meetstream.ai/guides/introduction/integration-paths)
+- [Integration paths](https://docs.meetstream.ai/guides/introduction/integration-paths): recording only, your own stack (bridge or your own agent), managed agents
+- [Bridge server architecture](https://docs.meetstream.ai/guides/websockets/bridge-server-architecture) · [Real-time audio streaming](https://docs.meetstream.ai/guides/websockets/real-time-audio-streaming) · [Meeting control patterns](https://docs.meetstream.ai/guides/websockets/meeting-control-patterns)
 - [Create your first bot](https://docs.meetstream.ai/guides/get-started/create-your-first-bot) · [Create Bot payload reference](https://docs.meetstream.ai/api-reference/create-bot-payload-reference)
 - [Webhooks and events](https://docs.meetstream.ai/guides/webhooks/webhooks-and-events) · [Errors](https://docs.meetstream.ai/errors)
 - [MIA API guide](https://docs.meetstream.ai/guides/mia/mia-api-guide) · [Voice agent pricing and keys](https://docs.meetstream.ai/guides/mia/pricing-and-keys) · [MIA screen sharing and custom agents](https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents)
