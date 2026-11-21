@@ -8,7 +8,7 @@ All notable changes to `@meetstream/sdk`.
 
 - Transcript shape. `get_transcript` segments name the speaker in `participant.name` and hold the text in `words[].text`; the docs said `speaker` / `transcript`. `TranscriptSegment` now types these fields. New `TranscriptWord`, `TranscriptParticipant` and `TranscriptTimestamp` types; `transcripts.get()` / `getByBotId()` are typed as a segment list. New `segmentSpeaker()`, `segmentText()` and `segmentStart()` helpers read this shape and the flat `speaker` / `transcript` shape. Tests cover both.
 - Zoom wording in docstrings and type comments: Zoom bots join through your Zoom app (Meeting SDK) with an OBF token (`obf_url`) or a ZAK token (`zak_url`). The text no longer says Zoom needs no setup. `zoom.use_own_app` is unchanged.
-- README and AGENTS.md state MeetStream's inbuilt keys per mode: Pipeline: OpenAI + Deepgram (Deepgram speech-to-text; OpenAI LLM and voice). Realtime: OpenAI only. Any other provider: bring your own key.
+- README and AGENTS.md state: "Inbuilt keys work in pipeline mode only: Deepgram (speech-to-text) and OpenAI (LLM and voice). Realtime mode runs on OpenAI and needs your own OpenAI key. Any other provider: bring your own key." `key_source: "meetstream"` works in pipeline mode only.
 
 ## 1.4.0 (2026-11-21)
 

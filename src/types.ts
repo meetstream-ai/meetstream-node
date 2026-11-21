@@ -551,11 +551,12 @@ export interface TranscriptSegment {
  * Who supplies the provider key for a pipeline section (`transcriber`,
  * `model`, `voice`).
  *
- * - `"meetstream"`: MeetStream's inbuilt keys. Send no `api_key`. Inbuilt
- *   keys per mode: Pipeline: OpenAI + Deepgram (Deepgram speech-to-text;
- *   OpenAI LLM and voice). Realtime: OpenAI only. Any other provider: bring
- *   your own key. The per-hour price of the model you pick
- *   is added to the agent price; the dashboard agent editor shows the rate.
+ * - `"meetstream"`: MeetStream's inbuilt keys. Send no `api_key`. Pipeline
+ *   mode only: inbuilt keys cover Deepgram (speech-to-text) and OpenAI (LLM
+ *   and voice). Realtime mode runs on OpenAI and needs your own OpenAI key.
+ *   Any other provider: bring your own key. The per-hour price of the model
+ *   you pick is added to the agent price; the dashboard agent editor shows the
+ *   rate.
  *   While inbuilt keys are not on for your account, the API answers 400
  *   `MeetStream-managed keys are not available for <section>. Use your own key.`
  *   (see {@link isInbuiltKeysUnavailable}). Use your own key then.
