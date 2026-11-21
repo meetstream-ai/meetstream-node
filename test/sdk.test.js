@@ -24,6 +24,9 @@ import {
   TranscriptFailedError,
   BalanceUnavailableError,
   isInbuiltKeysUnavailable,
+  segmentSpeaker,
+  segmentText,
+  segmentStart,
 } from '../dist/esm/index.js';
 
 /** Build a fetch stub that records calls and replays queued responses. */
@@ -778,4 +781,36 @@ test('billing.balance maps a 404 to BalanceUnavailableError with the billing pag
   assert.equal(err.billingUrl, 'https://app.meetstream.ai/billing');
   assert.match(err.message, /app\.meetstream\.ai\/billing/);
   assert.equal(calls.length, 1);
+});
+
+// Live shape, captured from a `meetstream` provider transcript:
+// participant.name + words[].text, with no flat speaker/transcript field.
+const LIVE_SEGMENTS = [
+  {
+    participant: { id: 100, name: 'Nav', platform: 'desktop' },
+    words: [
+      { text: "I'll", start_timestamp: { relative: 31.4, absolute: 31.4 }, end_timestamp: { relative: 31.6, absolute: 31.6 } },
+      { text: 'write the migration doc by Friday.', start_timestamp: { relative: 32, absolute: 32 }, end_timestamp: { relative: 34, absolute: 34 } },
+    ],
+    language_code: 'en',
+  },
+  { participant: { id: 101, name: '', platform: 'desktop' }, words: [{ text: '' }] },
+];
+
+test('segment helpers read the live transcript shape', async () => {
+  const { ms } = client({ body: LIVE_SEGMENTS });
+  const segments = await ms.transcripts.get('tr_1');
+  assert.equal(segmentSpeaker(segments[0]), 'Nav');
+  assert.equal(segmentText(segments[0]), "I'll write the migration doc by Friday.");
+  assert.equal(segmentStart(segments[0]), 31.4);
+  assert.equal(segmentSpeaker(segments[1]), 'Unknown');
+  assert.equal(segmentText(segments[1]), '');
+  assert.equal(segmentStart({}), undefined);
+});
+
+test('segment helpers still read the flat speaker/transcript shape', () => {
+  const flat = { speaker: 'Alice', transcript: 'hello there', start_time: 0 };
+  assert.equal(segmentSpeaker(flat), 'Alice');
+  assert.equal(segmentText(flat), 'hello there');
+  assert.equal(segmentStart(flat), 0);
 });

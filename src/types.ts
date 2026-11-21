@@ -183,14 +183,18 @@ export interface TeamsSignInOptions {
 /**
  * Zoom join options (`CreateBotParams.zoom`).
  *
- * With no `zoom` block (or `use_own_app` omitted or null), the bot uses your
- * connected Zoom app when you have one, and otherwise joins with no setup.
+ * Zoom bots join through your Zoom app (Meeting SDK) with an OBF token
+ * (`obf_url`, on behalf of a user who is in the meeting) or a ZAK token
+ * (`zak_url`, a signed-in bot). Setup:
+ * https://docs.meetstream.ai/guides/app-integrations/zoom-marketplace-app-setup
+ * and https://docs.meetstream.ai/guides/app-integrations/zoom-authenticated-bots
  */
 export interface ZoomJoinOptions {
   /**
-   * `true` requires your own Zoom app (saved credentials or a connected Zoom
-   * app); without one the API returns 400. `false` joins with no setup and
-   * cannot be combined with `zak_url` or `obf_url`. Not echoed in bot details.
+   * API field. `true` requires your own Zoom app (saved credentials or a
+   * connected Zoom app); without one the API returns 400. `false` cannot be
+   * combined with `zak_url` or `obf_url`. Omitted or null uses your connected
+   * Zoom app. Not echoed in bot details.
    */
   use_own_app?: boolean | null;
   /** HTTPS endpoint on your server that returns a fresh ZAK, to join as a signed-in user. Needs your own Zoom app. */
@@ -275,8 +279,8 @@ export interface CreateBotParams {
   /** Microsoft Teams signed-in join. See {@link TeamsSignInOptions}. */
   teams?: TeamsSignInOptions;
   /**
-   * Zoom join options: `use_own_app` picks your own Zoom app or a no-setup
-   * join, and `zak_url` / `obf_url` give authenticated joins. Each URL is an
+   * Zoom join options: bots join through your Zoom app with `obf_url` (OBF
+   * token) or `zak_url` (ZAK token). Each URL is an
    * HTTPS endpoint on your server that returns a fresh token when MeetStream
    * calls it. The older `use_zoom_obf` flag and `zoom_oauth_connection_user_id`
    * are rejected. See {@link ZoomJoinOptions}.
@@ -503,9 +507,38 @@ export type SendCommandResponse<C extends BotCommand = BotCommand> =
 
 /* ----------------------------------------------------------- transcripts */
 
+export interface TranscriptTimestamp {
+  /** Seconds from the start of the recording. */
+  relative?: number;
+  absolute?: unknown;
+  [k: string]: unknown;
+}
+
+/** One entry of `TranscriptSegment.words`: a token or a whole phrase. */
+export interface TranscriptWord {
+  text?: string;
+  start_timestamp?: TranscriptTimestamp;
+  end_timestamp?: TranscriptTimestamp;
+  [k: string]: unknown;
+}
+
+export interface TranscriptParticipant {
+  id?: string | number;
+  name?: string;
+  platform?: string;
+  [k: string]: unknown;
+}
+
+/**
+ * One item of the `get_transcript` list. The speaker is `participant.name`
+ * and the text is `words[].text`. Some providers also send flat `speaker` /
+ * `transcript` fields. `segmentSpeaker()` and `segmentText()` read either shape.
+ */
 export interface TranscriptSegment {
+  participant?: TranscriptParticipant;
+  words?: TranscriptWord[];
+  language_code?: string;
   speaker?: string;
-  /** The text field is called `transcript`, not `text`. */
   transcript?: string;
   start_time?: number;
   end_time?: number;
@@ -518,9 +551,10 @@ export interface TranscriptSegment {
  * Who supplies the provider key for a pipeline section (`transcriber`,
  * `model`, `voice`).
  *
- * - `"meetstream"`: MeetStream's inbuilt keys. Send no `api_key`. Pipeline
- *   mode only. Inbuilt keys cover OpenAI (LLM, speech and voice models) and
- *   Deepgram (speech-to-text) today. The per-hour price of the model you pick
+ * - `"meetstream"`: MeetStream's inbuilt keys. Send no `api_key`. Inbuilt
+ *   keys per mode: Pipeline: OpenAI + Deepgram (Deepgram speech-to-text;
+ *   OpenAI LLM and voice). Realtime: OpenAI only. Any other provider: bring
+ *   your own key. The per-hour price of the model you pick
  *   is added to the agent price; the dashboard agent editor shows the rate.
  *   While inbuilt keys are not on for your account, the API answers 400
  *   `MeetStream-managed keys are not available for <section>. Use your own key.`
