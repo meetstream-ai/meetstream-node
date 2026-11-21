@@ -338,10 +338,9 @@ await meetstream.bots.create({
   teams: { login_required: true, teams_login_domain: 'bots.acme.com' },
 });
 
-// Zoom with no setup: just the link. use_own_app: true requires your own Zoom app instead
-await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { use_own_app: false } });
-
-// Authenticated Zoom joins (need your own Zoom app): each URL is an HTTPS endpoint on your server that returns a fresh token
+// Zoom: bots join through your Zoom app (Meeting SDK) with an OBF token (on behalf of a user in the meeting)
+// or a ZAK token (signed-in bot), the way Zoom asks Meeting SDK apps to join since 2 March 2026.
+// Each URL is an HTTPS endpoint on your server that returns a fresh token.
 await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { zak_url: 'https://you.example.com/zoom/zak' } });
 await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', zoom: { obf_url: 'https://you.example.com/zoom/obf' } });
 
@@ -352,6 +351,8 @@ await meetstream.bots.create({ meeting_link, bot_name: 'Notetaker', storage_id: 
 ```
 
 Teams setup (dedicated Microsoft 365 tenant, account requirements, errors): [Teams signed-in bots guide](https://docs.meetstream.ai/guides/app-integrations/teams-signed-in-bots).
+
+Zoom setup: [Zoom Marketplace app setup](https://docs.meetstream.ai/guides/app-integrations/zoom-marketplace-app-setup) · [Zoom authenticated bots (ZAK and OBF)](https://docs.meetstream.ai/guides/app-integrations/zoom-authenticated-bots).
 
 </details>
 
