@@ -42,6 +42,9 @@ export class GoogleLogins {
     }
     return this.http.get('/google-logins', domainOrOpts ?? opts);
   }
+  get(loginId: string, opts: RequestOptions = {}): Promise<unknown> {
+    return this.http.get(`/google-logins/${encodeURIComponent(loginId)}`, opts);
+  }
   update(loginId: string, params: Record<string, unknown>, opts: RequestOptions = {}): Promise<unknown> {
     return this.http.patch(`/google-logins/${encodeURIComponent(loginId)}`, params, opts);
   }

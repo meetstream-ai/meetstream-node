@@ -1,0 +1,37 @@
+# Changelog
+
+All notable changes to `@meetstream/sdk`.
+
+## 1.4.0 (2026-11-21)
+
+Matches MeetStream API v1.10.0.
+
+### Added
+
+- Agents API: `mia.get(agentConfigId)`, `mia.checkLocalAgent(agentConfigId)` (`GET /mia?check=local_agent`), and `mia.updateLive(botId, params)` (same call as `bots.updateMia`, with `wait_for_ack`). `mia.create` returns a typed `CreateMiaResponse`.
+- `KeySource` (`"meetstream"` | `"user"`) as `key_source` on `transcriber`, `model` and `voice`, for MeetStream's inbuilt keys or your own keys.
+- `isInbuiltKeysUnavailable(err)` detects the `400` the API returns while inbuilt keys are not on for an account.
+- `model.provider: "local_agent"` (needs the local agent feature on for the account) with a typed `model.local_agent` block (`url`, `label`, `access`, `require_code`, `owner_only`, `owner_names`, `owner_ids`, `timeout_s`) and `LocalAgentCheck`.
+- Agent options: `agent.tools` (`current_time`, `weather_now`, `screen`), `agent.desktop`, `agent.chat_input`, `agent.quiet_actions`, `agent.speak_only_when_asked`, `agent.custom_functions`. `transcriber.language` is documented (unset, `multi` or `auto` = automatic detection). New `MiaVoiceConfig` type.
+- `TranscriptFailedError`: a `422` from `get_transcript` carries `status`, `transcriptStatus`, `transcriptId` and `reason`. It is not retried, and `transcripts.waitFor` stops at once.
+- `billing.balance()` for `GET /billing/balance` (`customer_type`, `balance_usd`, `currency`). Available when the endpoint is on for the account; a `404` raises `BalanceUnavailableError` (with `billingUrl`), not retried.
+- `meetingDirectConnect.create`, `get` and `leave` (Zoom Meeting Direct Connect), as in the Python SDK.
+
+### Changed
+
+- README opens with the two ways to integrate (Bot API, Agents API), a fastest path for each, the voice agent setups with prices, and a "Latest docs" section.
+
+## 1.3.0 (2026-11-17)
+
+- `bots.raiseHand`, `bots.lowerHand` and `bots.sendCommand` (typed per command), `bots.updateMia` with `wait_for_ack`.
+- MIA with Claude: `model.provider: "anthropic"` in pipeline mode, `reasoning_effort` and `tool_choice` typed.
+- New create fields typed: `zoom.use_own_app`, `bot_camera_stream`, `storage_id`, `initial_audio`, the `smallest` and `smallest_streaming` providers, `grid_view_default` and `speaker_view_default` layouts, `realtime_endpoints` with participant hand events, `recording_permission_denied_timeout` up to 600 seconds.
+- `speakerTimeline()` returns a union; `isSpeakerTimelineDownload()` detects the download-link shape.
+- Endpoints added: `bots.get`, `bots.stopStatus`, `bots.screenshot`, `transcripts.getByBotId`, `googleLogins.get`, `calendar.listConnections`, `calendar.getConnection`, `calendar.deleteConnection`.
+- Route fixes: `bots.screenshots()` calls `/screenshots` (with paging), `calendar.list()` calls `/calendar/calendars`, `calendar.disconnect()` is a `DELETE`.
+- Errors carry `retryAfter` and `code`; `RateLimitError` carries `limit` and `window`. An in-progress `409` on create is retried with the same key.
+- Deprecated: `bots.summary()` and `calendar.toggleRecurrence()`. The API has no route for either.
+
+## 1.2.1 and earlier
+
+See the git history.

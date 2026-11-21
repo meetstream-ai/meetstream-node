@@ -10,7 +10,12 @@ export interface ClientOptions {
   baseUrl?: string;
   /** Per-request timeout in milliseconds. Default 60000. */
   timeout?: number;
-  /** Retries for transient failures (429, 5xx, network). Default 2. */
+  /**
+   * Retries for transient failures (429, 5xx, network, and the 409 a create
+   * returns while an earlier request with the same key is still saving).
+   * Default 2. A `Retry-After` from the API sets the delay; one longer than
+   * 60 seconds is not waited out, the error is thrown so you can decide.
+   */
   maxRetries?: number;
   /** Extra headers sent on every request. */
   defaultHeaders?: Record<string, string>;
@@ -41,6 +46,13 @@ export const DEFAULT_BASE_URL = 'https://api.meetstream.ai/api/v1';
 
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
 
+/**
+ * The longest `Retry-After` the client waits out on its own. Pay-as-you-go
+ * create limits can ask for most of an hour; sleeping that long inside one
+ * call would look like a hang, so the error is thrown instead.
+ */
+const MAX_AUTO_RETRY_AFTER_SECONDS = 60;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -56,6 +68,35 @@ function messageFrom(body: unknown, status: number): string {
   }
   if (typeof body === 'string' && body.trim()) return body.trim().slice(0, 500);
   return `MeetStream API returned HTTP ${status}`;
+}
+
+/**
+ * A machine-readable code from the body: `code` when present, otherwise an
+ * `error` value that is a snake_case code (such as `rate_limit_exceeded`)
+ * rather than a sentence.
+ */
+function codeFrom(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const b = body as Record<string, unknown>;
+  if (typeof b['code'] === 'string' && b['code']) return b['code'];
+  const e = b['error'];
+  if (typeof e === 'string' && /^[a-z][a-z0-9_]*$/.test(e)) return e;
+  return undefined;
+}
+
+/** `Retry-After` in seconds: delta-seconds or an HTTP date, else the body's `retry_after`. */
+function retryAfterFrom(header: string | null, body: unknown): number | undefined {
+  if (header) {
+    const secs = Number(header);
+    if (Number.isFinite(secs) && secs >= 0) return secs;
+    const at = Date.parse(header);
+    if (Number.isFinite(at)) return Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  }
+  if (body && typeof body === 'object') {
+    const v = (body as Record<string, unknown>)['retry_after'];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v;
+  }
+  return undefined;
 }
 
 /**
@@ -155,19 +196,25 @@ export class HttpClient {
 
         const requestId = res.headers.get('x-request-id') ?? undefined;
         const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined;
+        const retryAfter = retryAfterFrom(retryAfterHeader, parsed);
 
         const err = errorForStatus(res.status, messageFrom(parsed, res.status), {
           body: parsed,
           requestId,
-          retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
+          retryAfter,
+          code: codeFrom(parsed),
         });
 
         // 202 is "not ready" - never retried at the transport layer, because the
         // caller decides the polling cadence via the waitFor* helpers.
-        if (!RETRYABLE.has(res.status) || attempt === maxRetries) throw err;
+        // 409 is retried only when it carries Retry-After: that is the create
+        // whose Idempotency-Key or deduplication_key is still being saved by an
+        // earlier request. Every other 409 is a real conflict.
+        const retryable = RETRYABLE.has(res.status) || (res.status === 409 && retryAfterHeader !== null);
+        if (!retryable || attempt === maxRetries) throw err;
+        if (retryAfter !== undefined && retryAfter > MAX_AUTO_RETRY_AFTER_SECONDS) throw err;
         lastError = err;
-        await sleep(retryAfter && Number.isFinite(retryAfter) ? retryAfter * 1000 : 2 ** attempt * 500 + Math.random() * 250);
+        await sleep(retryAfter !== undefined ? retryAfter * 1000 : 2 ** attempt * 500 + Math.random() * 250);
         continue;
       } catch (e) {
         if (e instanceof MeetStreamError) {

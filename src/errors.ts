@@ -1,9 +1,18 @@
 /**
  * Error types raised by the MeetStream SDK.
  *
- * Every MeetStream error response carries a `message` field; it is surfaced as
- * `error.message` and the raw body is kept on `error.body`.
+ * MeetStream error responses carry a `message` field (older responses use
+ * `error`, or a bare JSON string). It is surfaced as `error.message` and the
+ * raw body is kept on `error.body`.
  */
+
+export interface ErrorOptions {
+  status?: number;
+  body?: unknown;
+  requestId?: string;
+  retryAfter?: number;
+  code?: string;
+}
 
 export class MeetStreamError extends Error {
   /** HTTP status, when the failure came from the API rather than the network. */
@@ -12,13 +21,26 @@ export class MeetStreamError extends Error {
   readonly body?: unknown;
   /** Request id from the response headers, useful when contacting support. */
   readonly requestId?: string;
+  /**
+   * Seconds to wait before retrying, from the `Retry-After` header (or the
+   * body's `retry_after`) when the API sent one. Set on 429 and on the 409 a
+   * create returns while an earlier request with the same key is still saving.
+   */
+  readonly retryAfter?: number;
+  /**
+   * Machine-readable error code when the API sent one, for example
+   * `rate_limit_exceeded` or `unsupported_on_whatsapp`.
+   */
+  readonly code?: string;
 
-  constructor(message: string, opts: { status?: number; body?: unknown; requestId?: string } = {}) {
+  constructor(message: string, opts: ErrorOptions = {}) {
     super(message);
     this.name = new.target.name;
     this.status = opts.status;
     this.body = opts.body;
     this.requestId = opts.requestId;
+    this.retryAfter = opts.retryAfter;
+    this.code = opts.code;
   }
 }
 
@@ -40,16 +62,72 @@ export class PermissionError extends MeetStreamError {}
 /** 404 - unknown bot id, transcript id, or route. */
 export class NotFoundError extends MeetStreamError {}
 
-/** 409 - deduplication conflict: same `deduplication_key`, different meeting. */
+/**
+ * 409 - the request conflicts with current state: same `deduplication_key`
+ * for a different meeting, a live-bot command sent to a bot that is not in the
+ * meeting, or an occurrence that is already scheduled.
+ *
+ * When `retryAfter` is set, an earlier create with the same `Idempotency-Key`
+ * or `deduplication_key` is still saving. Retry with the same key; the client
+ * does this for you within `maxRetries`.
+ */
 export class ConflictError extends MeetStreamError {}
 
-/** 429 - rate limited. `retryAfter` is in seconds when the API supplied it. */
+/**
+ * 429 - rate limited. `retryAfter` is in seconds when the API supplied it.
+ *
+ * Pay-as-you-go accounts are limited on bot creates; the body then also says
+ * which window was hit (`limit`, `window`). Live-bot commands share a per-bot
+ * limit.
+ */
 export class RateLimitError extends MeetStreamError {
-  readonly retryAfter?: number;
-  constructor(message: string, opts: { status?: number; body?: unknown; requestId?: string; retryAfter?: number } = {}) {
+  /** The limit that was hit, when the API reported it. */
+  readonly limit?: number;
+  /** The window the limit applies to, when the API reported it. */
+  readonly window?: 'minute' | 'hour' | (string & {});
+
+  constructor(message: string, opts: ErrorOptions = {}) {
     super(message, opts);
-    this.retryAfter = opts.retryAfter;
+    const b = opts.body && typeof opts.body === 'object' ? (opts.body as Record<string, unknown>) : {};
+    if (typeof b['limit'] === 'number') this.limit = b['limit'];
+    if (typeof b['window'] === 'string') this.window = b['window'];
   }
+}
+
+/**
+ * 422 from `get_transcript` - the transcript **failed** and will not become
+ * ready. This is a final answer, not a server error: do not retry the same
+ * read. Fix the cause (for example a provider key the provider rejected, or a
+ * provider usage limit), then run `transcripts.transcribeBotAudio()` for a new
+ * transcript.
+ *
+ * Docs: https://docs.meetstream.ai/errors#failed-transcript-422
+ */
+export class TranscriptFailedError extends MeetStreamError {
+  /** The transcript status the API reported, normally `Failed`. */
+  readonly transcriptStatus: string;
+  /** The id of the failed transcript, when the API sent it. */
+  readonly transcriptId?: string;
+  /** Why it failed, without the `Transcript processing failed:` prefix. */
+  readonly reason: string;
+
+  constructor(message: string, opts: ErrorOptions = {}) {
+    super(message, opts);
+    const b = opts.body && typeof opts.body === 'object' ? (opts.body as Record<string, unknown>) : {};
+    this.transcriptStatus = typeof b['transcript_status'] === 'string' ? b['transcript_status'] : 'Failed';
+    if (typeof b['transcript_id'] === 'string') this.transcriptId = b['transcript_id'];
+    this.reason = message.replace(/^Transcript processing failed:?\s*/i, '') || message;
+  }
+}
+
+/**
+ * 404 from `billing.balance()`: the balance endpoint is not on for this
+ * account yet. Read the balance on https://app.meetstream.ai/billing. Do not
+ * retry.
+ */
+export class BalanceUnavailableError extends NotFoundError {
+  /** Where to see the balance instead. */
+  readonly billingUrl = 'https://app.meetstream.ai/billing';
 }
 
 /** 5xx - transient server error. Safe to retry with backoff. */
@@ -67,13 +145,30 @@ export class ServerError extends MeetStreamError {}
  */
 export class NotReadyError extends MeetStreamError {}
 
+function isFailedTranscriptBody(body: unknown): boolean {
+  return !!body && typeof body === 'object' && typeof (body as Record<string, unknown>)['transcript_status'] === 'string';
+}
+
+/**
+ * True when the API refused MeetStream's inbuilt keys because they are not on
+ * for your account yet. The message then reads, for example,
+ * `MeetStream-managed keys are not available for model. Use your own key.`
+ *
+ * Use your own provider key for that section (`key_source: "user"`, or omit
+ * `key_source`) and continue. Do not retry the same request.
+ */
+export function isInbuiltKeysUnavailable(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /MeetStream-managed keys are not available/i.test(message);
+}
+
 /** Map an HTTP status onto the right error class. */
 export function errorForStatus(
   status: number,
   message: string,
-  opts: { body?: unknown; requestId?: string; retryAfter?: number } = {},
+  opts: Omit<ErrorOptions, 'status'> = {},
 ): MeetStreamError {
-  const base = { status, body: opts.body, requestId: opts.requestId };
+  const base = { ...opts, status };
   switch (status) {
     case 202: return new NotReadyError(message, base);
     case 400: return new BadRequestError(message, base);
@@ -81,7 +176,10 @@ export function errorForStatus(
     case 403: return new PermissionError(message, base);
     case 404: return new NotFoundError(message, base);
     case 409: return new ConflictError(message, base);
-    case 429: return new RateLimitError(message, { ...base, retryAfter: opts.retryAfter });
+    case 422:
+      if (isFailedTranscriptBody(opts.body)) return new TranscriptFailedError(message, base);
+      return new MeetStreamError(message, base);
+    case 429: return new RateLimitError(message, base);
     default:
       if (status >= 500) return new ServerError(message, base);
       return new MeetStreamError(message, base);

@@ -1,9 +1,11 @@
 import { HttpClient, type ClientOptions, type RequestOptions, DEFAULT_BASE_URL } from './client.js';
-import { Bots } from './resources/bots.js';
+import { Bots, isSpeakerTimelineDownload } from './resources/bots.js';
 import { Transcripts } from './resources/transcripts.js';
 import { Calendar } from './resources/calendar.js';
 import { Mia } from './resources/mia.js';
 import { GoogleLogins, TeamsLogins, Zoom, Storage } from './resources/integrations.js';
+import { Billing } from './resources/billing.js';
+import { MeetingDirectConnect } from './resources/meeting-direct-connect.js';
 
 /**
  * The MeetStream client.
@@ -36,6 +38,8 @@ export class MeetStream {
   readonly teamsLogins: TeamsLogins;
   readonly zoom: Zoom;
   readonly storage: Storage;
+  readonly billing: Billing;
+  readonly meetingDirectConnect: MeetingDirectConnect;
 
   constructor(options: ClientOptions = {}) {
     this.http = new HttpClient(options);
@@ -47,6 +51,8 @@ export class MeetStream {
     this.teamsLogins = new TeamsLogins(this.http);
     this.zoom = new Zoom(this.http);
     this.storage = new Storage(this.http);
+    this.billing = new Billing(this.http);
+    this.meetingDirectConnect = new MeetingDirectConnect(this.http);
   }
 }
 
@@ -67,16 +73,58 @@ export {
   RateLimitError,
   ServerError,
   NotReadyError,
+  TranscriptFailedError,
+  BalanceUnavailableError,
+  isInbuiltKeysUnavailable,
 } from './errors.js';
 
 export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
+export { isSpeakerTimelineDownload };
+export type { CalendarProvider } from './resources/calendar.js';
+export type { ErrorOptions } from './errors.js';
 
 export type {
   VideoLayout,
   Bot,
   BotStatus,
+  BotErrorReason,
+  FailureReason,
+  StopStatus,
   CreateBotParams,
+  ZoomJoinOptions,
+  RealtimeEndpoint,
+  RealtimeEvent,
+  SmallestTranscriptionConfig,
+  SmallestStreamingTranscriptionConfig,
+  SpeakerTimeline,
+  SpeakerTimelineInline,
+  SpeakerTimelineDownload,
+  Screenshot,
+  ScreenshotsPage,
+  ListScreenshotsParams,
+  BotCommand,
+  SendCommandParams,
+  SendCommandResponse,
+  CommandResponse,
+  HandCommandResponse,
+  ScreenshotCommandResponse,
+  ChatCommandResponse,
+  RecordingCommandResponse,
+  UpdateLiveMiaParams,
+  UpdateLiveMiaResponse,
+  MiaLlmProvider,
   CreateMiaParams,
+  CreateMiaResponse,
+  UpdateMiaConfigParams,
+  AgentConfig,
+  KeySource,
+  LocalAgentAccess,
+  MiaLocalAgentConfig,
+  MiaVoiceConfig,
+  MiaBuiltInTool,
+  LocalAgentCheck,
+  BillingBalance,
+  FailedTranscriptBody,
   GoogleMeetSignInOptions,
   TeamsSignInOptions,
   RecordingConfig,
@@ -91,4 +139,6 @@ export type {
   MiaTranscriberConfig,
   WebhookEvent,
   WebhookPayload,
+  ParticipantEventPayload,
+  StopReason,
 } from './types.js';
