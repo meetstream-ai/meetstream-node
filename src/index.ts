@@ -4,6 +4,8 @@ import { Transcripts } from './resources/transcripts.js';
 import { Calendar } from './resources/calendar.js';
 import { Mia } from './resources/mia.js';
 import { GoogleLogins, TeamsLogins, Zoom, Storage } from './resources/integrations.js';
+import { Billing } from './resources/billing.js';
+import { MeetingDirectConnect } from './resources/meeting-direct-connect.js';
 
 /**
  * The MeetStream client.
@@ -36,6 +38,8 @@ export class MeetStream {
   readonly teamsLogins: TeamsLogins;
   readonly zoom: Zoom;
   readonly storage: Storage;
+  readonly billing: Billing;
+  readonly meetingDirectConnect: MeetingDirectConnect;
 
   constructor(options: ClientOptions = {}) {
     this.http = new HttpClient(options);
@@ -47,6 +51,8 @@ export class MeetStream {
     this.teamsLogins = new TeamsLogins(this.http);
     this.zoom = new Zoom(this.http);
     this.storage = new Storage(this.http);
+    this.billing = new Billing(this.http);
+    this.meetingDirectConnect = new MeetingDirectConnect(this.http);
   }
 }
 
@@ -67,6 +73,8 @@ export {
   RateLimitError,
   ServerError,
   NotReadyError,
+  TranscriptFailedError,
+  isInbuiltKeysUnavailable,
 } from './errors.js';
 
 export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
@@ -105,6 +113,17 @@ export type {
   UpdateLiveMiaResponse,
   MiaLlmProvider,
   CreateMiaParams,
+  CreateMiaResponse,
+  UpdateMiaConfigParams,
+  AgentConfig,
+  KeySource,
+  LocalAgentAccess,
+  MiaLocalAgentConfig,
+  MiaVoiceConfig,
+  MiaBuiltInTool,
+  LocalAgentCheck,
+  BillingBalance,
+  FailedTranscriptBody,
   GoogleMeetSignInOptions,
   TeamsSignInOptions,
   RecordingConfig,

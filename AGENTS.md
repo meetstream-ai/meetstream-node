@@ -115,7 +115,7 @@ Adding an endpoint means a method on the right resource class plus a test assert
 
 ### Releasing
 
-Bump `version` in `package.json`, run `npm test`, then `npm publish --access public`. `prepublishOnly` rebuilds automatically.
+Bump `version` in `package.json`, add a `CHANGELOG.md` entry, run `npm test`, then `npm publish --access public`. `prepublishOnly` rebuilds automatically.
 
 ## API rules that are easy to get wrong
 
@@ -130,6 +130,9 @@ These are live-verified. Do not "fix" code that follows them.
 - **`202` and `507` are not errors.** 202 means poll again; 507 means an idempotent retry replayed and is a success.
 - The bot field is **`meeting_link`**, not `meeting_url`.
 - `in_call_recording_timeout` has a hard floor of **600 seconds**; below it the API returns 400.
+- **Two ways to integrate.** The Bot API (meeting bots and recording) is the default. Use the Agents API (voice agents, API name MIA) only when the user asks for an agent that talks in the meeting.
+- **Voice agent keys.** `key_source: "meetstream"` on `transcriber`, `model` and `voice` (pipeline mode, no `api_key`) uses MeetStream's inbuilt keys; `"user"` or omitted uses the customer's own keys. While inbuilt keys are not on for an account, the API returns 400 `MeetStream-managed keys are not available for <section>. Use your own key.`: switch that section to the customer's own key, do not retry.
+- **A failed transcript is `422`**, with `message`, `transcript_status: "Failed"` and `transcript_id`. It is final: surface the reason, never retry the read.
 - MIA bots take **only `agent_config_id`**. Adding `socket_connection_url` or `live_audio_required` alongside it is the usual cause of a silent agent.
 - **Video is off by default.** Send `"video_required": false` on every bot unless the user explicitly asks to record video. The API defaults it to `false`; send it explicitly anyway. Transcripts, summaries, diarization and speaker timelines all work without video.
 - **When video is on, send a layout.** `recording_config.video_layout` defaults to `"grid_view"`, so pass `"speaker_view"` explicitly unless the user asks for grid or gallery view. It is ignored when video is off. Google Meet, Teams and Zoom accept `"speaker_view"` and `"grid_view"`; Google Meet and Teams also accept `"speaker_view_default"` and `"grid_view_default"`; WhatsApp accepts only `"grid_view"`.

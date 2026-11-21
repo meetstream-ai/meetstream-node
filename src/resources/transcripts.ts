@@ -17,8 +17,10 @@ export class Transcripts {
    * Segments use a `transcript` field, not `text`. Reading the wrong field is
    * the usual reason a transcript "looks empty".
    *
-   * Throws `NotReadyError` on HTTP 202. A transcript whose transcription
-   * failed returns a server error; handle a 422 the same way as a 500.
+   * Throws `NotReadyError` on HTTP 202 (still processing) and
+   * `TranscriptFailedError` on HTTP 422: the transcript failed and will not
+   * become ready. Read `error.reason`, fix the cause, then call
+   * `transcribeBotAudio()` for a new transcript.
    */
   get(
     transcriptId: string,
@@ -36,8 +38,8 @@ export class Transcripts {
    * `transcript_id` first. Same response as `get()`.
    *
    * Throws `NotReadyError` on HTTP 202, `ConflictError` (409) when the bot
-   * had no transcription or was never admitted, and a server error when
-   * transcription failed (handle a 422 the same way as a 500).
+   * had no transcription or was never admitted, and `TranscriptFailedError`
+   * (422) when the transcript failed.
    */
   getByBotId(
     botId: string,
@@ -70,7 +72,8 @@ export class Transcripts {
    * Wait for a transcript, bounded.
    *
    * Never unbounded on purpose: streaming-only providers return 202 forever
-   * because no post-call transcript will ever exist.
+   * because no post-call transcript will ever exist. Stops at once with
+   * `TranscriptFailedError` when the transcript failed (422).
    */
   async waitFor(transcriptId: string, opts: WaitOptions = {}): Promise<unknown> {
     const timeoutMs = opts.timeoutMs ?? 900_000;

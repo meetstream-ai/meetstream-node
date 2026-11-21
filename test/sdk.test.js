@@ -21,6 +21,8 @@ import {
   stopReason,
   describeStop,
   isSpeakerTimelineDownload,
+  TranscriptFailedError,
+  isInbuiltKeysUnavailable,
 } from '../dist/esm/index.js';
 
 /** Build a fetch stub that records calls and replays queued responses. */
@@ -608,4 +610,160 @@ test('participant hand events parse like other webhooks', () => {
   assert.equal(parsed.event, 'participant_events.raise_hand');
   assert.equal(isTerminal(parsed), false);
   assert.equal(parsed.data.data.action, 'raise_hand');
+});
+
+/* ------------------------------------------------- 1.4.0: Agents API */
+
+test('mia.get fetches one config by agent_config_id', async () => {
+  const { ms, calls } = client({ body: { AgentConfigID: 'a1', AgentName: 'Helper' } });
+  const cfg = await ms.mia.get('a1');
+  assert.equal(cfg.AgentConfigID, 'a1');
+  assert.equal(calls[0].init.method, 'GET');
+  assert.match(calls[0].url, /\/api\/v1\/mia\?agent_config_id=a1$/);
+});
+
+test('mia.create sends key_source on each pipeline section and no api_key', async () => {
+  const { ms, calls } = client({ status: 201, body: { agent_config_id: 'a2', message: 'created' } });
+  const res = await ms.mia.create({
+    agent_name: 'Inbuilt keys',
+    mode: 'pipeline',
+    transcriber: { provider: 'deepgram', model: 'nova-3', language: 'es', key_source: 'meetstream' },
+    model: { provider: 'openai', model: 'gpt-4.1', system_prompt: 'Be brief.', key_source: 'meetstream' },
+    voice: { provider: 'openai', voice_id: 'coral', key_source: 'meetstream' },
+  });
+  assert.equal(res.agent_config_id, 'a2');
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.transcriber.key_source, 'meetstream');
+  assert.equal(body.transcriber.language, 'es');
+  assert.equal(body.model.key_source, 'meetstream');
+  assert.equal(body.voice.key_source, 'meetstream');
+  assert.equal(body.model.api_key, undefined);
+});
+
+test('mia.create passes a local_agent model and the v1.10.0 agent options through', async () => {
+  const { ms, calls } = client({ status: 201, body: { agent_config_id: 'a3' } });
+  await ms.mia.create({
+    agent_name: 'My agent',
+    mode: 'pipeline',
+    transcriber: { provider: 'deepgram', key_source: 'user' },
+    voice: { provider: 'openai', voice_id: 'coral' },
+    model: {
+      provider: 'local_agent',
+      local_agent: { url: 'https://bridge.example.com', access: 'readonly', require_code: true, timeout_s: 120 },
+    },
+    agent: { tools: ['screen'], chat_input: true, quiet_actions: true, speak_only_when_asked: true, desktop: false },
+  });
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.model.provider, 'local_agent');
+  assert.deepEqual(body.model.local_agent, { url: 'https://bridge.example.com', access: 'readonly', require_code: true, timeout_s: 120 });
+  assert.deepEqual(body.agent.tools, ['screen']);
+  assert.equal(body.agent.chat_input, true);
+  assert.equal(body.agent.quiet_actions, true);
+  assert.equal(body.agent.speak_only_when_asked, true);
+});
+
+test('mia.update PUTs the full body with agent_config_id', async () => {
+  const { ms, calls } = client({ body: { message: 'updated' } });
+  await ms.mia.update({ agent_config_id: 'a1', agent: { chat_input: true } });
+  assert.equal(calls[0].init.method, 'PUT');
+  assert.match(calls[0].url, /\/api\/v1\/mia$/);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { agent_config_id: 'a1', agent: { chat_input: true } });
+});
+
+test('mia.checkLocalAgent sends check=local_agent and returns the bridge status', async () => {
+  const { ms, calls } = client({ body: { local_agent: { status: 'ok', latency_ms: 42, agent: 'claude', max_access: 'readonly' } } });
+  const res = await ms.mia.checkLocalAgent('a3');
+  assert.equal(res.local_agent.status, 'ok');
+  const url = new URL(calls[0].url);
+  assert.equal(url.pathname, '/api/v1/mia');
+  assert.equal(url.searchParams.get('agent_config_id'), 'a3');
+  assert.equal(url.searchParams.get('check'), 'local_agent');
+});
+
+test('mia.updateLive posts update_mia with wait_for_ack', async () => {
+  const { ms, calls } = client({ body: { status: 'applied', bot_id: 'b1', command: 'update_mia', applied: ['system_prompt'] } });
+  const res = await ms.mia.updateLive('b1', { system_prompt: 'New rules', wait_for_ack: true });
+  assert.equal(res.status, 'applied');
+  assert.match(calls[0].url, /\/api\/v1\/bots\/b1\/update_mia$/);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { system_prompt: 'New rules', wait_for_ack: true });
+});
+
+test('bots.create attaches an agent with agent_config_id only', async () => {
+  const { ms, calls } = client({ status: 201, body: { bot_id: 'b9' } });
+  await ms.bots.create({ meeting_link: 'https://meet.google.com/a-b-c', agent_config_id: 'a1', agent_config_params: { name: 'Ana' } });
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.agent_config_id, 'a1');
+  assert.equal(body.socket_connection_url, undefined);
+  assert.equal(body.live_audio_required, undefined);
+});
+
+test('isInbuiltKeysUnavailable spots the inbuilt-keys-not-on error, and only that one', async () => {
+  const { ms } = client({ status: 400, body: { message: 'MeetStream-managed keys are not available for model. Use your own key.' } });
+  const err = await ms.mia.create({ agent_name: 'x', mode: 'pipeline', model: { provider: 'openai', key_source: 'meetstream' } }).catch((e) => e);
+  assert.ok(err instanceof BadRequestError);
+  assert.equal(isInbuiltKeysUnavailable(err), true);
+  assert.equal(isInbuiltKeysUnavailable(new BadRequestError('API key not configured for: openai')), false);
+});
+
+/* --------------------------------------------- 1.4.0: failed transcript */
+
+test('a 422 failed transcript is a TranscriptFailedError with status and reason, and is not retried', async () => {
+  const body = { message: 'Transcript processing failed: provider authentication was rejected. Check the API key.', transcript_status: 'Failed', transcript_id: 't1' };
+  const { ms, calls } = client({ status: 422, body }, { maxRetries: 2 });
+  const err = await ms.transcripts.get('t1').catch((e) => e);
+  assert.ok(err instanceof TranscriptFailedError);
+  assert.ok(err instanceof MeetStreamError);
+  assert.equal(err.status, 422);
+  assert.equal(err.transcriptStatus, 'Failed');
+  assert.equal(err.transcriptId, 't1');
+  assert.equal(err.reason, 'provider authentication was rejected. Check the API key.');
+  assert.equal(calls.length, 1);
+});
+
+test('getByBotId and waitFor stop at once on a failed transcript', async () => {
+  const body = { message: 'Transcript processing failed: the transcription provider timed out.', transcript_status: 'Failed', transcript_id: 't2' };
+  const { ms, calls } = client({ status: 422, body });
+  await assert.rejects(ms.transcripts.getByBotId('b1'), TranscriptFailedError);
+  await assert.rejects(ms.transcripts.waitFor('t2', { intervalMs: 1, timeoutMs: 1000 }), TranscriptFailedError);
+  assert.equal(calls.length, 2);
+});
+
+test('a 422 without transcript_status stays a plain MeetStreamError', async () => {
+  const { ms } = client({ status: 422, body: { message: 'Unprocessable' } });
+  const err = await ms.bots.status('b1').catch((e) => e);
+  assert.ok(err instanceof MeetStreamError);
+  assert.ok(!(err instanceof TranscriptFailedError));
+  assert.equal(err.status, 422);
+});
+
+/* ------------------------------------------------------ 1.4.0: billing */
+
+test('billing.balance reads GET /billing/balance', async () => {
+  const { ms, calls } = client({ body: { customer_type: 'pay_as_you_go', balance_usd: '12.34', currency: 'USD' } });
+  const bal = await ms.billing.balance();
+  assert.equal(bal.balance_usd, '12.34');
+  assert.equal(bal.currency, 'USD');
+  assert.equal(calls[0].init.method, 'GET');
+  assert.match(calls[0].url, /\/api\/v1\/billing\/balance$/);
+});
+
+test('billing.balance returns null balance_usd for an invoice account', async () => {
+  const { ms } = client({ body: { customer_type: 'invoice', balance_usd: null, currency: 'USD' } });
+  const bal = await ms.billing.balance();
+  assert.equal(bal.balance_usd, null);
+});
+
+/* ------------------------------------- 1.4.0: Meeting Direct Connect */
+
+test('meetingDirectConnect create, get and leave use the direct connect routes', async () => {
+  const { ms, calls } = client({ body: { bot_id: 'r1' } });
+  await ms.meetingDirectConnect.create({ zoom_rtms: { meeting_uuid: 'u', rtms_stream_id: 's', server_urls: 'wss://x', signature: 'sig' } });
+  await ms.meetingDirectConnect.get('r1');
+  await ms.meetingDirectConnect.leave('r1');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.match(calls[0].url, /\/api\/v1\/meeting_direct_connect$/);
+  assert.equal(calls[1].init.method, 'GET');
+  assert.match(calls[1].url, /\/api\/v1\/meeting_direct_connect\/r1$/);
+  assert.equal(calls[2].init.method, 'POST');
+  assert.match(calls[2].url, /\/api\/v1\/meeting_direct_connect\/r1\/leave$/);
 });
