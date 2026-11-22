@@ -161,7 +161,7 @@ These are live-verified. Do not "fix" code that follows them.
 ## Related
 
 - Docs: https://docs.meetstream.ai
-- MCP server: [`@meetstream/mcp`](https://github.com/meetstream-ai/meetstream-mcp)
+- MCP server: https://github.com/meetstream-ai/meetstream-mcp (hosted at `https://mcp.meetstream.ai/mcp`)
 - CLI: [`@meetstream/cli`](https://github.com/meetstream-ai/meetstream-cli)
 - Claude Code plugin: https://github.com/meetstream-ai/claude-plugin
 - Cursor plugin: https://github.com/meetstream-ai/meetstream-cursor-plugin
