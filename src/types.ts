@@ -570,8 +570,10 @@ export type KeySource = 'meetstream' | 'user';
 /**
  * LLM provider for `model.provider`. `anthropic` (Claude) is pipeline mode
  * only and uses the Anthropic key saved in your model integrations.
- * `local_agent` makes your own agent (Claude Code, Codex, Hermes and others,
- * through the MeetStream Agent Kit) the brain of the voice agent.
+ * `local_agent` makes your own coding agent (Claude Code, Codex, Hermes and
+ * others) the brain of the voice agent, through the `meetstream` CLI
+ * (`meetstream setup` and `meetstream agent serve`) over the MeetStream relay.
+ * Coming soon.
  */
 export type MiaLlmProvider = 'openai' | 'anthropic' | 'xai' | 'google' | 'local_agent' | (string & {});
 
@@ -595,7 +597,10 @@ export type LocalAgentAccess = 'readonly' | 'confirm' | 'full';
  * Docs: https://docs.meetstream.ai/guides/features/mia-screen-sharing-and-custom-agents
  */
 export interface MiaLocalAgentConfig {
-  /** Public HTTPS address of your Agent Kit bridge (tunnel). Up to 300 characters. */
+  /**
+   * Public HTTPS tunnel address of your local agent bridge, used by the legacy
+   * tunnel transport. Up to 300 characters.
+   */
   url: string;
   /** Display label. Up to 40 characters. */
   label?: string;

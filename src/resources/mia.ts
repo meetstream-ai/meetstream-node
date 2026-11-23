@@ -19,8 +19,9 @@ import type {
  *
  * Keys: each pipeline section (`transcriber`, `model`, `voice`) uses
  * MeetStream's inbuilt keys with `key_source: "meetstream"`, or your own key.
- * `model.provider: "local_agent"` runs your own agent through the MeetStream
- * Agent Kit. See https://docs.meetstream.ai/guides/mia/pricing-and-keys and
+ * `model.provider: "local_agent"` runs your own coding agent as MIA's brain
+ * through the `meetstream` CLI (`meetstream setup` and `meetstream agent
+ * serve`) over the MeetStream relay; coming soon. See https://docs.meetstream.ai/guides/mia/pricing-and-keys and
  * https://docs.meetstream.ai/guides/mia/mia-api-guide.
  *
  * Secrets come back masked (`****` plus the last four characters). Sending a

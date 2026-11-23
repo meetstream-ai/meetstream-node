@@ -26,6 +26,23 @@ export function isSpeakerTimelineDownload(body: unknown): body is SpeakerTimelin
     && typeof (body as Record<string, unknown>)['speaker_timeline_url'] === 'string';
 }
 
+let summaryWarned = false;
+
+/** Emit the `bots.summary()` deprecation warning once per process. */
+function warnSummaryDeprecated(): void {
+  if (summaryWarned) return;
+  summaryWarned = true;
+  const message = 'bots.summary() is deprecated: the MeetStream API has no summary endpoint and the call '
+    + 'returns 404. Fetch the transcript (transcripts.getByBotId(botId), transcripts.get() with the '
+    + 'transcript_id from bots.detail(), or GET /bots/{bot_id}/get_transcript) and summarize it with your own LLM.';
+  const proc = (globalThis as { process?: { emitWarning?: (msg: string, opts: { type: string; code: string }) => void } }).process;
+  if (proc && typeof proc.emitWarning === 'function') {
+    proc.emitWarning(message, { type: 'DeprecationWarning', code: 'MEETSTREAM_BOTS_SUMMARY' });
+  } else {
+    console.warn(`DeprecationWarning: ${message}`);
+  }
+}
+
 export interface WaitOptions extends RequestOptions {
   /** How long to keep polling, in milliseconds. Default 600000 (10 minutes). */
   timeoutMs?: number;
@@ -66,11 +83,15 @@ export class Bots {
   }
 
   /**
-   * @deprecated The MeetStream REST API has no meeting summary endpoint, so
-   * this call returns 404. Fetch the transcript and summarize it yourself.
-   * Kept so existing code still compiles.
+   * @deprecated The MeetStream REST API has no meeting summary endpoint
+   * (`GET /bots/{bot_id}/summary` was removed), so this call returns 404.
+   * Fetch the transcript with `transcripts.getByBotId(botId)` (or
+   * `transcripts.get()` with the `transcript_id` from `bots.detail()`, or
+   * `GET /bots/{bot_id}/get_transcript`) and summarize it with your own LLM.
+   * Kept so existing code still compiles. Warns once per process.
    */
   summary(botId: string, opts: RequestOptions = {}): Promise<unknown> {
+    warnSummaryDeprecated();
     return this.http.get(`/bots/${encodeURIComponent(botId)}/summary`, opts);
   }
 

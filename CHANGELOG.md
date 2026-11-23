@@ -2,6 +2,13 @@
 
 All notable changes to `@meetstream/sdk`.
 
+## 1.4.4 (2026-11-23)
+
+### Changed
+
+- `bots.summary()` now emits a one-time `DeprecationWarning` (`process.emitWarning`, code `MEETSTREAM_BOTS_SUMMARY`; `console.warn` outside Node) in addition to the `@deprecated` JSDoc. The API has no summary endpoint (it is not in https://docs.meetstream.ai/openapi.json) and the call returns 404. Fetch the transcript (`transcripts.getByBotId()`, `transcripts.get()` with the `transcript_id` from `bots.detail()`, or `GET /bots/{bot_id}/get_transcript`) and summarize it with your own LLM. The method and its HTTP call are unchanged.
+- Type and docstring comments for `model.provider: "local_agent"` no longer name the Agent Kit. The local agent (your own coding agent as MIA's brain) runs through the `meetstream` CLI (`meetstream setup` and `meetstream agent serve`) over the MeetStream relay: coming soon. `local_agent.url` is documented as the tunnel address used by the legacy tunnel transport. No type or behaviour change.
+
 ## 1.4.3 (2026-11-23)
 
 ### Changed

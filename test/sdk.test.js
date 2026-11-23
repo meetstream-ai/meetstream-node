@@ -339,6 +339,28 @@ test('bots.get and stopStatus hit the bot routes', async () => {
   ]);
 });
 
+test('bots.summary is deprecated: keeps the old path and warns once', async () => {
+  const warnings = [];
+  const onWarning = (w) => { if (w.code === 'MEETSTREAM_BOTS_SUMMARY') warnings.push(w); };
+  process.on('warning', onWarning);
+  try {
+    const { ms, calls } = client({ body: {} });
+    await ms.bots.summary('b1');
+    await ms.bots.summary('b1');
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(calls.map(req).map(({ method, path }) => ({ method, path })), [
+      { method: 'GET', path: '/bots/b1/summary' },
+      { method: 'GET', path: '/bots/b1/summary' },
+    ]);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].name, 'DeprecationWarning');
+    assert.match(warnings[0].message, /no summary endpoint/);
+    assert.match(warnings[0].message, /get_transcript/);
+  } finally {
+    process.off('warning', onWarning);
+  }
+});
+
 test('screenshots list uses /screenshots with paging params, and one is fetched by id', async () => {
   const { ms, calls } = client({ body: { bot_id: 'b1', screenshots: [], next_continuation_token: null } });
   await ms.bots.screenshots('b1');
