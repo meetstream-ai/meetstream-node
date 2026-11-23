@@ -112,7 +112,7 @@ await meetstream.bots.create({ meeting_link, agent_config_id: agent.agent_config
 - **3a. MeetStream's own, default keys.** Set `key_source: "meetstream"` on each pipeline section (`transcriber`, `model`, `voice`), with no `api_key`. Inbuilt keys work in pipeline mode only: Deepgram (speech-to-text) and OpenAI (LLM and voice). Realtime mode runs on OpenAI and needs your own OpenAI key. Any other provider: bring your own key (3c). The easiest choice if you want MeetStream to host everything.
 - **3b. Bring your own agent infra (LiveKit).** Coming soon. Not available yet.
 - **3c. Bring your own keys.** Add your provider keys (OpenAI, Anthropic, Deepgram, ElevenLabs and others in the docs) under Integrations, and pick any supported model. Use `key_source: "user"` or leave it out. Your provider bills you for model usage.
-- **3d. Local agent (your own agent CLI).** Coming soon. Not available in production yet. Your own agent (for example Claude Code, Codex or Hermes) will write what the voice agent says, through the [MeetStream Agent Kit](https://github.com/meetstream-ai/agent-kit) (a preview package) and `model.provider: "local_agent"`. When it ships, meeting speech will reach an agent that has access to your computer and terminal, so a participant can try prompt injection: use the lowest access level.
+- **3d. Local agent (your own agent CLI).** Coming soon. Not available in production yet. Your own agent (for example Claude Code, Codex or Hermes) will write what the voice agent says, through `meetstream setup` and `meetstream agent serve` over the MeetStream relay (no tunnel) and `model.provider: "local_agent"`. When it ships, meeting speech will reach an agent that has access to your computer and terminal, so a participant can try prompt injection: use the lowest access level.
 - **Price:** bot price + $0.25 agent infrastructure + the per-hour price of each model you pick (with 3c, your provider bills the models). The dashboard agent editor shows the rate before the bot runs. See [Voice agent pricing and keys](https://docs.meetstream.ai/guides/mia/pricing-and-keys) and the [MIA API guide](https://docs.meetstream.ai/guides/mia/mia-api-guide).
 
 If inbuilt keys are not on for your account yet, the API answers `400` with `MeetStream-managed keys are not available for <section>. Use your own key.` Check with `isInbuiltKeysUnavailable(err)`, then use your own key for that section (3c). Do not retry the same request.
@@ -439,7 +439,7 @@ Full history: [CHANGELOG.md](CHANGELOG.md).
 | | What | Where |
 |:--:|---|---|
 | 🔌 | **MCP server** - 19 tools for any MCP client, hosted: add the URL and sign in | [`https://mcp.meetstream.ai/mcp`](https://docs.meetstream.ai/build-with-ai/meetstream-mcp-server) |
-| ⌨️ | **CLI** | [`@meetstream/cli`](https://www.npmjs.com/package/@meetstream/cli) |
+| ⌨️ | **CLI** - `meetstream`, one binary: `npm install -g @meetstream/cli`, `pipx install meetstream-cli` or `brew install meetstream-ai/tap/meetstream`; agents call `meetstream <command> --json --no-input` | [meetstream-ai/cli](https://github.com/meetstream-ai/cli) |
 | 🤖 | **Claude Code plugin** | [claude-plugin](https://github.com/meetstream-ai/claude-plugin) |
 | ✳️ | **Cursor plugin** | [meetstream-cursor-plugin](https://github.com/meetstream-ai/meetstream-cursor-plugin) |
 | 🧪 | **Labs** - runnable templates | [labs](https://github.com/meetstream-ai/labs) |

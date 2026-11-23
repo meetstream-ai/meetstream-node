@@ -2,6 +2,12 @@
 
 All notable changes to `@meetstream/sdk`.
 
+## 1.4.3 (2026-11-23)
+
+### Changed
+
+- README and AGENTS.md point to the new `meetstream` CLI (one binary from github.com/meetstream-ai/cli; install with `npm install -g @meetstream/cli`, `pipx install meetstream-cli` or `brew install meetstream-ai/tap/meetstream`). Track 3d (coming soon) now names `meetstream setup` and `meetstream agent serve` over the MeetStream relay instead of the Agent Kit. No code change.
+
 ## 1.4.2 (2026-11-22)
 
 ### Changed
