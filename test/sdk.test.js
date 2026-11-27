@@ -850,28 +850,52 @@ test('timestamp tolerance is off by default, so existing calls are unchanged', (
   assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: 'not a date' }), true);
 });
 
-test('timestamp tolerance accepts an ISO X-MeetStream-Timestamp inside the window', () => {
-  const now = Date.parse('2026-11-19T14:30:00Z');
-  const opts = { timestamp: '2026-11-19T14:28:00Z', toleranceSeconds: 300, now };
-  assert.equal(verifyWebhookSignature(BODY, `sha256=${SIG}`, SECRET, opts), true);
-  assert.equal(parseWebhook(BODY, SIG, SECRET, opts).bot_id, 'b1');
-  // A future timestamp inside the window is accepted too (clock skew).
-  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { ...opts, timestamp: '2026-11-19T14:31:00Z' }), true);
-  // now as a Date
-  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { ...opts, now: new Date(now) }), true);
+const TS_NOW = Date.parse('2026-11-19T14:30:00Z');
+function signed(body) {
+  const raw = JSON.stringify(body);
+  return { raw, sig: createHmac('sha256', SECRET).update(raw, 'utf8').digest('hex') };
+}
+
+test('timestamp tolerance: header and signed body match and are fresh -> accepted', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', bot_id: 'b1', timestamp: '2026-11-19T14:28:00Z' });
+  const opts = { timestamp: '2026-11-19T14:28:00Z', toleranceSeconds: 300, now: TS_NOW };
+  assert.equal(verifyWebhookSignature(raw, `sha256=${sig}`, SECRET, opts), true);
+  assert.equal(parseWebhook(raw, sig, SECRET, opts).bot_id, 'b1');
+  // Same instant in another ISO spelling still matches.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { ...opts, timestamp: '2026-11-19T14:28:00.000Z' }), true);
+  // No header: the signed body alone decides. now as a Date works too.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { toleranceSeconds: 300, now: new Date(TS_NOW) }), true);
+  // A future timestamp inside the window is accepted (clock skew).
+  const ahead = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:31:00Z' });
+  assert.equal(verifyWebhookSignature(ahead.raw, ahead.sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), true);
 });
 
-test('timestamp tolerance rejects old, missing or unparseable timestamps', () => {
-  const now = Date.parse('2026-11-19T14:30:00Z');
-  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: '2026-11-19T14:20:00Z', toleranceSeconds: 300, now }), false);
-  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { toleranceSeconds: 300, now }), false);
-  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: '1763562600', toleranceSeconds: 300, now }), false);
-  assert.throws(
-    () => parseWebhook(BODY, SIG, SECRET, { timestamp: '2026-11-19T14:20:00Z', toleranceSeconds: 300, now }),
-    /verification failed/,
-  );
+test('timestamp tolerance: replayed old body with a fresh header -> rejected', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', bot_id: 'b1', timestamp: '2026-11-19T14:00:00Z' });
+  const opts = { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now: TS_NOW };
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, opts), false);
+  assert.throws(() => parseWebhook(raw, sig, SECRET, opts), /verification failed/);
+  // Header matching the old body is still outside the window.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { ...opts, timestamp: '2026-11-19T14:00:00Z' }), false);
+});
+
+test('timestamp tolerance: header that differs from a fresh body -> rejected', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:29:00Z' });
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { timestamp: '2026-11-19T14:29:30Z', toleranceSeconds: 300, now: TS_NOW }), false);
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { timestamp: 'garbage', toleranceSeconds: 300, now: TS_NOW }), false);
+});
+
+test('timestamp tolerance rejects a body with no or unparseable timestamp', () => {
+  const none = signed({ event: 'bot.joining' });
+  assert.equal(verifyWebhookSignature(none.raw, none.sig, SECRET, { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now: TS_NOW }), false);
+  const unix = signed({ event: 'bot.joining', timestamp: 1763562600 });
+  assert.equal(verifyWebhookSignature(unix.raw, unix.sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
+  const notJson = 'not json';
+  const sig = createHmac('sha256', SECRET).update(notJson, 'utf8').digest('hex');
+  assert.equal(verifyWebhookSignature(notJson, sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
   // A bad signature still fails inside the window.
-  assert.equal(verifyWebhookSignature(BODY, 'bad', SECRET, { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now }), false);
+  const fresh = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:30:00Z' });
+  assert.equal(verifyWebhookSignature(fresh.raw, 'bad', SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
 });
 
 test('handEvent matches the Python hand_event helper', () => {

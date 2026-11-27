@@ -381,8 +381,8 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   let event;
   try {
     event = parseWebhook(req.body, req.header('x-meetstream-signature')!, process.env.WEBHOOK_SECRET!, {
-      timestamp: req.header('x-meetstream-timestamp'), // optional replay window
-      toleranceSeconds: 300,                            // off when not set
+      timestamp: req.header('x-meetstream-timestamp'), // must match the signed body's timestamp
+      toleranceSeconds: 300,                            // optional replay window, off when not set
     });
   } catch {
     return res.sendStatus(401);
@@ -392,6 +392,8 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   res.sendStatus(200);   // ack fast, process async
 });
 ```
+
+Replay protection relies on the `timestamp` field inside the signed body: the HMAC covers the body, not the `X-MeetStream-Timestamp` header. With `toleranceSeconds` set, the delivery is rejected when the body's `timestamp` is missing or outside the window, or when the header is sent and does not match it.
 
 Participant events (`participant_events.join`, `leave`, `chat_message`, `raise_hand`, `lower_hand`) go only to the `recording_config.realtime_endpoints` entries that list them; type them with `ParticipantEventPayload`. `handEvent(event)` returns `'raise_hand'`, `'lower_hand'` or `null`.
 

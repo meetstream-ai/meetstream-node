@@ -22,31 +22,50 @@ function safeEqual(a: string, b: string): boolean {
 
 /** Options for {@link verifyWebhookSignature} and {@link parseWebhook}. */
 export interface VerifyWebhookOptions {
-  /** The `X-MeetStream-Timestamp` header: an ISO 8601 UTC string, for example `2026-11-19T14:30:00Z`. */
+  /**
+   * The `X-MeetStream-Timestamp` header: an ISO 8601 UTC string, for example
+   * `2026-11-19T14:30:00Z`. The HMAC does not cover this header, so it is
+   * only cross-checked: when present, it must match the signed body's
+   * `timestamp`, or the delivery is rejected.
+   */
   timestamp?: string | null;
   /**
-   * Reject the delivery when `timestamp` is missing, cannot be parsed, or is
-   * more than this many seconds away from now. Off when not set.
+   * Reject the delivery when the signed body's `timestamp` field is missing,
+   * cannot be parsed, or is more than this many seconds away from now. The
+   * window is checked against the body (which the HMAC covers), never against
+   * the header alone. Off when not set.
    */
   toleranceSeconds?: number;
   /** The current time, for tests. Default `Date.now()`. */
   now?: Date | number;
 }
 
+function parseIsoMillis(value: unknown): number | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const ms = Date.parse(value.trim());
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /**
- * True when `timestamp` (ISO 8601) is within `toleranceSeconds` of `now`.
- * False when it is missing or cannot be parsed.
+ * Replay check after the signature verified. Reads `timestamp` from the signed
+ * body; the unsigned header must agree with it when it is sent.
  */
-function timestampWithinTolerance(
-  timestamp: string | null | undefined,
-  toleranceSeconds: number,
-  now: Date | number | undefined,
-): boolean {
-  if (!timestamp) return false;
-  const sent = Date.parse(timestamp.trim());
-  if (Number.isNaN(sent)) return false;
+function signedTimestampWithinTolerance(body: string, options: VerifyWebhookOptions): boolean {
+  let signed: unknown;
+  try {
+    signed = (JSON.parse(body) as { timestamp?: unknown } | null)?.timestamp;
+  } catch {
+    return false;
+  }
+  const sent = parseIsoMillis(signed);
+  if (sent === null) return false;
+  if (options.timestamp !== undefined && options.timestamp !== null) {
+    const header = parseIsoMillis(options.timestamp);
+    if (header === null || header !== sent) return false;
+  }
+  const { now } = options;
   const current = now === undefined ? Date.now() : typeof now === 'number' ? now : now.getTime();
-  return Math.abs(current - sent) <= toleranceSeconds * 1000;
+  return Math.abs(current - sent) <= (options.toleranceSeconds as number) * 1000;
 }
 
 /**
@@ -66,8 +85,10 @@ function timestampWithinTolerance(
  * @param payload   raw request body
  * @param signature the `X-MeetStream-Signature` header
  * @param secret    your webhook signing secret
- * @param options   optional replay window: pass the `X-MeetStream-Timestamp`
- *                  header as `timestamp` and set `toleranceSeconds`
+ * @param options   optional replay window: set `toleranceSeconds`, and pass
+ *                  the `X-MeetStream-Timestamp` header as `timestamp`. The
+ *                  window uses the signed body's `timestamp` field; the
+ *                  header must match it when sent.
  */
 export function verifyWebhookSignature(
   payload: string | Buffer,
@@ -84,7 +105,7 @@ export function verifyWebhookSignature(
   if (!safeEqual(expected, candidate.trim())) return false;
 
   if (options.toleranceSeconds !== undefined) {
-    return timestampWithinTolerance(options.timestamp, options.toleranceSeconds, options.now);
+    return signedTimestampWithinTolerance(body, options);
   }
   return true;
 }

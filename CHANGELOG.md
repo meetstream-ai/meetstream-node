@@ -6,7 +6,7 @@ All notable changes to `@meetstream/sdk`.
 
 ### Added
 
-- `verifyWebhookSignature` and `parseWebhook` take an optional fourth argument `{ timestamp, toleranceSeconds, now }`. With `toleranceSeconds` set, the delivery is rejected when the `X-MeetStream-Timestamp` header (ISO 8601 UTC) is missing, cannot be parsed, or is outside the window. Off by default; existing calls are unchanged.
+- `verifyWebhookSignature` and `parseWebhook` take an optional fourth argument `{ timestamp, toleranceSeconds, now }`. With `toleranceSeconds` set, the delivery is rejected when the signed body's `timestamp` field (ISO 8601 UTC) is missing, cannot be parsed, or is outside the window, or when the `X-MeetStream-Timestamp` header is passed and does not match it. The window uses the body because the HMAC covers the body, not the header. Off by default; existing calls are unchanged.
 - Live transcription types: `sarvam_streaming` (streaming) and `aws_transcribe` (post-call) provider keys, `TranscriptionMode` (`raw` | `sentence` | `word_level`) as `transcription_mode` on the `*_streaming` provider configs (`StreamingTranscriptionConfig`), `LiveTranscriptPayload` and `LiveCaptionPayload` (`meeting_captions`).
 - `isFinalSegment(payload)`: true for `sentence` and `word_level` POSTs and for `raw` POSTs with `is_final: true` or `end_of_turn: true`; false for interim results.
 - MIA custom functions: `CustomFunction` and `CustomFunctionCall` types, `BOT_ID_HEADER` (`X-Bot-ID`) and `AGENT_ID_HEADER` (`X-Agent-ID`), and `parseCustomFunctionCall(body, headers)`, which returns `{ name, botId, agentId, args }` for the default envelope and for `payload_args_only` bodies. `MiaAgentConfig.custom_functions` stays `unknown[]`.
