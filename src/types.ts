@@ -10,7 +10,7 @@
 
 /** Post-call providers produce a transcript after the meeting ends. */
 export type PostCallTranscriptionProvider =
-  | 'deepgram' | 'assemblyai' | 'sarvam' | 'jigsawstack' | 'meetstream' | 'smallest';
+  | 'deepgram' | 'assemblyai' | 'sarvam' | 'jigsawstack' | 'meetstream' | 'smallest' | 'aws_transcribe';
 
 /**
  * Streaming providers deliver transcripts live and produce **no** post-call
@@ -19,7 +19,27 @@ export type PostCallTranscriptionProvider =
  */
 export type StreamingTranscriptionProvider =
   | 'deepgram_streaming' | 'assemblyai_streaming' | 'jigsawstack_streaming'
-  | 'meetstream_streaming' | 'smallest_streaming' | 'meeting_captions';
+  | 'meetstream_streaming' | 'sarvam_streaming' | 'smallest_streaming' | 'meeting_captions';
+
+/**
+ * `transcription_mode` on a `*_streaming` provider: how live transcript POSTs
+ * reach `live_transcription_required.webhook_url`.
+ *
+ * - `raw` (default): interim results (`is_final: false`), then the final one
+ *   (`is_final: true`; AssemblyAI marks it with `end_of_turn`).
+ * - `sentence`: finals only, each with `end_of_turn: true`.
+ * - `word_level`: one word per POST; `transcript` is the word and `utterance` is `""`.
+ *
+ * Use {@link isFinalSegment} to skip interim results in `raw` mode.
+ */
+export type TranscriptionMode = 'raw' | 'sentence' | 'word_level';
+
+/** Options shared by the `*_streaming` providers. Other provider options pass through. */
+export interface StreamingTranscriptionConfig {
+  /** Default `raw`. See {@link TranscriptionMode}. */
+  transcription_mode?: TranscriptionMode;
+  [k: string]: unknown;
+}
 
 export type TranscriptionProvider = PostCallTranscriptionProvider | StreamingTranscriptionProvider;
 
@@ -30,10 +50,14 @@ export interface TranscriptProviderConfig {
   sarvam?: Record<string, unknown>;
   jigsawstack?: Record<string, unknown>;
   meetstream?: Record<string, unknown>;
-  deepgram_streaming?: Record<string, unknown>;
-  assemblyai_streaming?: Record<string, unknown>;
-  jigsawstack_streaming?: Record<string, unknown>;
-  meetstream_streaming?: Record<string, unknown>;
+  /** AWS Transcribe, post-call. */
+  aws_transcribe?: Record<string, unknown>;
+  deepgram_streaming?: StreamingTranscriptionConfig;
+  assemblyai_streaming?: StreamingTranscriptionConfig;
+  jigsawstack_streaming?: StreamingTranscriptionConfig;
+  meetstream_streaming?: StreamingTranscriptionConfig;
+  sarvam_streaming?: StreamingTranscriptionConfig;
+  /** Platform captions. Live POSTs use the {@link LiveCaptionPayload} envelope. */
   meeting_captions?: Record<string, unknown>;
   /**
    * Smallest AI, post-call. Uses the Smallest key saved in the dashboard
@@ -69,6 +93,8 @@ export interface SmallestStreamingTranscriptionConfig {
   model?: 'pulse' | 'pulse-2';
   /** Language code. Default `en`. */
   language?: string;
+  /** Default `raw`. See {@link TranscriptionMode}. */
+  transcription_mode?: TranscriptionMode;
   [k: string]: unknown;
 }
 
@@ -426,7 +452,8 @@ export type SendCommandParams =
   /** Lower the bot's own hand. Google Meet, Zoom and Teams. Safe to repeat. */
   | { command: 'lower_hand' }
   /** Post a chat message (1-2000 characters). */
-  | { command: 'sendmsg'; message: string; metadata?: Record<string, unknown> }
+  /** Post a chat message. Bridge servers send the text as both `message` and `msg`. */
+  | { command: 'sendmsg'; message: string; msg?: string; metadata?: Record<string, unknown> }
   /** Post an agent or user chat line, marked final or partial. */
   | { command: 'sendchat'; message: string; role: 'assistant' | 'user'; is_final: boolean }
   /** Show a base64 image as the bot's video for `display_duration` seconds. */
@@ -701,7 +728,10 @@ export interface MiaAgentConfig {
   response_modality?: string;
   /** Built-in tools, for example `["screen"]`. */
   tools?: MiaBuiltInTool[];
-  /** Your HTTPS functions the agent can call. Up to 20. */
+  /**
+   * Your HTTPS functions the agent can call. Up to 20. Type each entry with
+   * {@link CustomFunction}; the field stays `unknown[]` so existing code compiles.
+   */
   custom_functions?: unknown[];
   /** MCP servers the agent can reach. This is what turns a talking bot into one that does work. */
   mcp_servers?: unknown[];
@@ -931,4 +961,96 @@ export interface ParticipantEventPayload {
   };
   custom_attributes?: Record<string, string>;
   [k: string]: unknown;
+}
+
+/* ------------------------------------------------------ live transcripts */
+
+/**
+ * A live transcript POST to `live_transcription_required.webhook_url` from a
+ * `*_streaming` provider. These POSTs are **not signed**: put a secret token
+ * in the webhook URL and check it.
+ *
+ * `meeting_captions` uses a different envelope: {@link LiveCaptionPayload}.
+ */
+export interface LiveTranscriptPayload {
+  bot_id: string;
+  speakerName: string;
+  speakerId?: string;
+  timestamp?: string;
+  /** The text. In `word_level` mode, the single word. */
+  transcript: string;
+  /** The utterance so far. `""` in `word_level` mode. */
+  utterance?: string;
+  words?: Array<Record<string, unknown>>;
+  /** `raw` mode: `false` on interim results, `true` on the final one. */
+  is_final?: boolean;
+  /** `true` when the speaker's turn ended (AssemblyAI finals, and every `sentence` POST). */
+  end_of_turn?: boolean;
+  turn_order?: number;
+  transcription_mode?: TranscriptionMode | (string & {});
+  [k: string]: unknown;
+}
+
+/** A live POST from the `meeting_captions` provider. */
+export interface LiveCaptionPayload {
+  type: 'caption';
+  bot_id: string;
+  caption: { text: string; speakerName?: string; [k: string]: unknown };
+  [k: string]: unknown;
+}
+
+/* ----------------------------------------------------- custom functions */
+
+/**
+ * One entry of `agent.custom_functions`: an HTTPS endpoint a MIA agent can
+ * call as a tool.
+ */
+export interface CustomFunction {
+  /** Unique per agent. */
+  name: string;
+  /** Tells the model when to call the function. Up to 1024 characters. */
+  description: string;
+  /** Public HTTPS URL. */
+  url: string;
+  /** Default `POST`. */
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  headers?: Record<string, string>;
+  /** Flat object of scalar values. */
+  query_params?: Record<string, string | number | boolean>;
+  /** JSON Schema object for the arguments. */
+  parameters?: Record<string, unknown>;
+  /** 1-120. Default 30. */
+  timeout_s?: number;
+  /** 0-5. Default 2. */
+  retries?: number;
+  /** 1000-50000. Default 15000. */
+  response_cap_chars?: number;
+  /** Send only the arguments as the body, not the {@link CustomFunctionCall} envelope. */
+  payload_args_only?: boolean;
+  include_speaker_details?: boolean;
+  speak_during_execution?: boolean;
+  speak_after_execution?: boolean;
+  /** What the agent says while the call runs. Up to 500 characters. */
+  speak_during_prompt?: string;
+  /** Save values from the response as dynamic variables. `path` is dot notation, for example `data.id`. Up to 20. */
+  response_variables?: Array<{ name: string; path: string }>;
+  [k: string]: unknown;
+}
+
+/**
+ * The body MIA sends to a {@link CustomFunction} URL (unless
+ * `payload_args_only` is set, then the body is only `args`). The request also
+ * carries the `X-Bot-ID` header, and `X-Agent-ID` when known.
+ */
+export interface CustomFunctionCall {
+  name: string;
+  bot: {
+    bot_id: string;
+    dynamic_vars?: Record<string, unknown>;
+    agent_id?: string;
+    /** With `include_speaker_details`. */
+    speaker?: unknown;
+    [k: string]: unknown;
+  };
+  args: Record<string, unknown>;
 }

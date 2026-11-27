@@ -2,6 +2,21 @@
 
 All notable changes to `@meetstream/sdk`.
 
+## 1.5.0 (2026-11-27)
+
+### Added
+
+- `verifyWebhookSignature` and `parseWebhook` take an optional fourth argument `{ timestamp, toleranceSeconds, now }`. With `toleranceSeconds` set, the delivery is rejected when the signed body's `timestamp` field (ISO 8601 UTC) is missing, cannot be parsed, or is outside the window, or when the `X-MeetStream-Timestamp` header is passed and does not match it. The window uses the body because the HMAC covers the body, not the header. Off by default; existing calls are unchanged.
+- Live transcription types: `sarvam_streaming` (streaming) and `aws_transcribe` (post-call) provider keys, `TranscriptionMode` (`raw` | `sentence` | `word_level`) as `transcription_mode` on the `*_streaming` provider configs (`StreamingTranscriptionConfig`), `LiveTranscriptPayload` and `LiveCaptionPayload` (`meeting_captions`).
+- `isFinalSegment(payload)`: true for `sentence` and `word_level` POSTs and for `raw` POSTs with `is_final: true` or `end_of_turn: true`; false for interim results.
+- MIA custom functions: `CustomFunction` and `CustomFunctionCall` types, `BOT_ID_HEADER` (`X-Bot-ID`) and `AGENT_ID_HEADER` (`X-Agent-ID`), and `parseCustomFunctionCall(body, headers, { payloadArgsOnly })`, which returns `{ name, botId, agentId, args }`. The caller states the body shape (envelope by default); it is never guessed from the content. `botId` comes from `X-Bot-ID` first, and from `bot.bot_id` only in envelope mode. Every field, `X-Bot-ID` included, is unauthenticated unless the endpoint checks its own secret. `MiaAgentConfig.custom_functions` stays `unknown[]`.
+- `handEvent(event)` and `PARTICIPANT_HAND_EVENTS`, matching the Python SDK's `hand_event`.
+- `sendCommand({ command: 'sendmsg' })` accepts `msg` next to `message`.
+
+### Changed
+
+- README: only workspace webhook endpoints are signed. Per-bot `callback_url` deliveries and live transcript POSTs are never signed; the README shows the token-in-URL pattern (`MEETSTREAM_WEBHOOK_SECRET`) for them, the optional timestamp window, live `transcription_mode` with `isFinalSegment`, and custom function calls.
+
 ## 1.4.4 (2026-11-23)
 
 ### Changed

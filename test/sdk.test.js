@@ -27,6 +27,12 @@ import {
   segmentSpeaker,
   segmentText,
   segmentStart,
+  PARTICIPANT_HAND_EVENTS,
+  handEvent,
+  isFinalSegment,
+  BOT_ID_HEADER,
+  AGENT_ID_HEADER,
+  parseCustomFunctionCall,
 } from '../dist/esm/index.js';
 
 /** Build a fetch stub that records calls and replays queued responses. */
@@ -835,4 +841,155 @@ test('segment helpers still read the flat speaker/transcript shape', () => {
   assert.equal(segmentSpeaker(flat), 'Alice');
   assert.equal(segmentText(flat), 'hello there');
   assert.equal(segmentStart(flat), 0);
+});
+
+/* ------------------------------------------- MS-2488: SDK flow gaps */
+
+test('timestamp tolerance is off by default, so existing calls are unchanged', () => {
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, {}), true);
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: 'not a date' }), true);
+});
+
+const TS_NOW = Date.parse('2026-11-19T14:30:00Z');
+function signed(body) {
+  const raw = JSON.stringify(body);
+  return { raw, sig: createHmac('sha256', SECRET).update(raw, 'utf8').digest('hex') };
+}
+
+test('timestamp tolerance: header and signed body match and are fresh -> accepted', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', bot_id: 'b1', timestamp: '2026-11-19T14:28:00Z' });
+  const opts = { timestamp: '2026-11-19T14:28:00Z', toleranceSeconds: 300, now: TS_NOW };
+  assert.equal(verifyWebhookSignature(raw, `sha256=${sig}`, SECRET, opts), true);
+  assert.equal(parseWebhook(raw, sig, SECRET, opts).bot_id, 'b1');
+  // Same instant in another ISO spelling still matches.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { ...opts, timestamp: '2026-11-19T14:28:00.000Z' }), true);
+  // No header: the signed body alone decides. now as a Date works too.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { toleranceSeconds: 300, now: new Date(TS_NOW) }), true);
+  // A future timestamp inside the window is accepted (clock skew).
+  const ahead = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:31:00Z' });
+  assert.equal(verifyWebhookSignature(ahead.raw, ahead.sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), true);
+});
+
+test('timestamp tolerance: replayed old body with a fresh header -> rejected', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', bot_id: 'b1', timestamp: '2026-11-19T14:00:00Z' });
+  const opts = { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now: TS_NOW };
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, opts), false);
+  assert.throws(() => parseWebhook(raw, sig, SECRET, opts), /verification failed/);
+  // Header matching the old body is still outside the window.
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { ...opts, timestamp: '2026-11-19T14:00:00Z' }), false);
+});
+
+test('timestamp tolerance: header that differs from a fresh body -> rejected', () => {
+  const { raw, sig } = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:29:00Z' });
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { timestamp: '2026-11-19T14:29:30Z', toleranceSeconds: 300, now: TS_NOW }), false);
+  assert.equal(verifyWebhookSignature(raw, sig, SECRET, { timestamp: 'garbage', toleranceSeconds: 300, now: TS_NOW }), false);
+});
+
+test('timestamp tolerance rejects a body with no or unparseable timestamp', () => {
+  const none = signed({ event: 'bot.joining' });
+  assert.equal(verifyWebhookSignature(none.raw, none.sig, SECRET, { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now: TS_NOW }), false);
+  const unix = signed({ event: 'bot.joining', timestamp: 1763562600 });
+  assert.equal(verifyWebhookSignature(unix.raw, unix.sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
+  const notJson = 'not json';
+  const sig = createHmac('sha256', SECRET).update(notJson, 'utf8').digest('hex');
+  assert.equal(verifyWebhookSignature(notJson, sig, SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
+  // A bad signature still fails inside the window.
+  const fresh = signed({ event: 'bot.joining', timestamp: '2026-11-19T14:30:00Z' });
+  assert.equal(verifyWebhookSignature(fresh.raw, 'bad', SECRET, { toleranceSeconds: 300, now: TS_NOW }), false);
+});
+
+test('handEvent matches the Python hand_event helper', () => {
+  assert.deepEqual([...PARTICIPANT_HAND_EVENTS], ['participant_events.raise_hand', 'participant_events.lower_hand']);
+  assert.equal(handEvent({ event: 'participant_events.raise_hand' }), 'raise_hand');
+  assert.equal(handEvent({ event: 'participant_events.lower_hand' }), 'lower_hand');
+  assert.equal(handEvent({ event: 'participant_events.join' }), null);
+  assert.equal(handEvent({ event: 'bot.stopped' }), null);
+  assert.equal(handEvent({}), null);
+});
+
+test('isFinalSegment skips raw interim results and keeps finals', () => {
+  const base = { bot_id: 'b1', speakerName: 'Ada', transcript: 'hello' };
+  // raw is the default when transcription_mode is absent
+  assert.equal(isFinalSegment({ ...base, is_final: false }), false);
+  assert.equal(isFinalSegment({ ...base }), false);
+  assert.equal(isFinalSegment({ ...base, is_final: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', is_final: false }), false);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', is_final: true }), true);
+  // AssemblyAI marks finals with end_of_turn
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', end_of_turn: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', end_of_turn: false }), false);
+  // sentence and word_level are always final
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'sentence', end_of_turn: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'sentence' }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'word_level', utterance: '' }), true);
+});
+
+test('custom function header names', () => {
+  assert.equal(BOT_ID_HEADER, 'X-Bot-ID');
+  assert.equal(AGENT_ID_HEADER, 'X-Agent-ID');
+});
+
+test('parseCustomFunctionCall reads the default envelope', () => {
+  const body = { name: 'lookup_order', bot: { bot_id: 'b1', dynamic_vars: { tier: 'gold' }, agent_id: 'a1' }, args: { order_id: '42' } };
+  const out = parseCustomFunctionCall(JSON.stringify(body), { 'x-bot-id': 'b1', 'x-agent-id': 'a1' });
+  assert.equal(out.name, 'lookup_order');
+  assert.equal(out.botId, 'b1');
+  assert.equal(out.agentId, 'a1');
+  assert.deepEqual(out.args, { order_id: '42' });
+  assert.deepEqual(out.bot.dynamic_vars, { tier: 'gold' });
+  // Buffer and parsed bodies, no headers: falls back to the body's bot block
+  assert.equal(parseCustomFunctionCall(Buffer.from(JSON.stringify(body))).botId, 'b1');
+  const parsed = parseCustomFunctionCall(body);
+  assert.equal(parsed.botId, 'b1');
+  assert.equal(parsed.agentId, 'a1');
+});
+
+test('parseCustomFunctionCall prefers the X-Bot-ID header, with fetch Headers too', () => {
+  const body = { name: 'f', bot: { bot_id: 'from-body' }, args: {} };
+  const headers = new Headers({ 'X-Bot-ID': 'from-header' });
+  const out = parseCustomFunctionCall(body, headers);
+  assert.equal(out.botId, 'from-header');
+  assert.equal(out.agentId, null);
+  assert.equal(parseCustomFunctionCall(body, { 'X-Bot-ID': ['arr-header'] }).botId, 'arr-header');
+});
+
+test('parseCustomFunctionCall args-only mode reads the whole body as args', () => {
+  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' }, { payloadArgsOnly: true });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'b1');
+  assert.equal(out.agentId, null);
+  assert.deepEqual(out.args, { order_id: '42' });
+  assert.equal(out.bot, undefined);
+  assert.deepEqual(parseCustomFunctionCall('', { 'x-bot-id': 'b1' }, { payloadArgsOnly: true }).args, {});
+});
+
+test('parseCustomFunctionCall never treats args-only content that imitates an envelope as one', () => {
+  const spoof = { name: 'admin_tool', bot: { bot_id: 'victim-bot', agent_id: 'victim-agent' }, args: { z: 1 } };
+  // Header present: the header wins, the body is plain args.
+  const out = parseCustomFunctionCall(JSON.stringify(spoof), { 'x-bot-id': 'real-bot' }, { payloadArgsOnly: true });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'real-bot');
+  assert.equal(out.agentId, null);
+  assert.equal(out.bot, undefined);
+  assert.deepEqual(out.args, spoof);
+  // Header missing: no bot id is taken from the body.
+  const noHeader = parseCustomFunctionCall(spoof, {}, { payloadArgsOnly: true });
+  assert.equal(noHeader.botId, null);
+  assert.equal(noHeader.agentId, null);
+  assert.equal(noHeader.name, null);
+});
+
+test('parseCustomFunctionCall envelope mode does not autodetect an args-only body', () => {
+  // Default is envelope: a bare args body yields no name and empty args.
+  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'b1');
+  assert.deepEqual(out.args, {});
+  assert.equal(out.bot, undefined);
+});
+
+test('sendCommand sendmsg passes message and msg through', async () => {
+  const { ms, calls } = client({ body: { status: 'sent' } });
+  await ms.bots.sendCommand('b1', { command: 'sendmsg', message: 'hi', msg: 'hi' });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { command: 'sendmsg', message: 'hi', msg: 'hi' });
 });
