@@ -401,7 +401,7 @@ Participant events (`participant_events.join`, `leave`, `chat_message`, `raise_h
 
 ### MIA custom functions
 
-A MIA agent calls each `agent.custom_functions` entry (type it with `CustomFunction`) with the body `{ name, bot: { bot_id, dynamic_vars, agent_id?, speaker? }, args }` and the `X-Bot-ID` header (`X-Agent-ID` when known). With `payload_args_only: true` the body is only `args`. `parseCustomFunctionCall` reads both shapes:
+A MIA agent calls each `agent.custom_functions` entry (type it with `CustomFunction`) with the body `{ name, bot: { bot_id, dynamic_vars, agent_id?, speaker? }, args }` and the `X-Bot-ID` header (`X-Agent-ID` when known). With `payload_args_only: true` the body is only `args`. `parseCustomFunctionCall` reads the shape you state (envelope by default; pass `{ payloadArgsOnly: true }` for an args-only function). It never guesses the shape from the body: arguments come from the model and could imitate an envelope. `botId` comes from the `X-Bot-ID` header first, and from `bot.bot_id` only in envelope mode when the header is missing.
 
 ```ts
 import { parseCustomFunctionCall } from '@meetstream/sdk';
@@ -412,7 +412,7 @@ app.post('/tools/lookup-order', express.json(), (req, res) => {
 });
 ```
 
-These calls are not signed either: add your own auth header in the function's `headers`.
+**Every field, `X-Bot-ID` included, is unauthenticated.** These calls are not signed. Put a secret token in the function's `headers` (for example `{ "Authorization": "Bearer <your secret>" }`) and check it in your endpoint before you trust the call.
 
 ## Errors
 

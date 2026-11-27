@@ -953,20 +953,39 @@ test('parseCustomFunctionCall prefers the X-Bot-ID header, with fetch Headers to
   assert.equal(parseCustomFunctionCall(body, { 'X-Bot-ID': ['arr-header'] }).botId, 'arr-header');
 });
 
-test('parseCustomFunctionCall handles payload_args_only bodies', () => {
-  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' });
+test('parseCustomFunctionCall args-only mode reads the whole body as args', () => {
+  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' }, { payloadArgsOnly: true });
   assert.equal(out.name, null);
   assert.equal(out.botId, 'b1');
   assert.equal(out.agentId, null);
   assert.deepEqual(out.args, { order_id: '42' });
   assert.equal(out.bot, undefined);
-  // Arguments that look like an envelope can be forced to the args-only reading
-  const tricky = { name: 'x', bot: { bot_id: 'y' }, args: { z: 1 } };
-  const forced = parseCustomFunctionCall(tricky, { 'x-bot-id': 'b1' }, { payloadArgsOnly: true });
-  assert.equal(forced.name, null);
-  assert.deepEqual(forced.args, tricky);
-  // An empty body gives empty args
-  assert.deepEqual(parseCustomFunctionCall('', { 'x-bot-id': 'b1' }).args, {});
+  assert.deepEqual(parseCustomFunctionCall('', { 'x-bot-id': 'b1' }, { payloadArgsOnly: true }).args, {});
+});
+
+test('parseCustomFunctionCall never treats args-only content that imitates an envelope as one', () => {
+  const spoof = { name: 'admin_tool', bot: { bot_id: 'victim-bot', agent_id: 'victim-agent' }, args: { z: 1 } };
+  // Header present: the header wins, the body is plain args.
+  const out = parseCustomFunctionCall(JSON.stringify(spoof), { 'x-bot-id': 'real-bot' }, { payloadArgsOnly: true });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'real-bot');
+  assert.equal(out.agentId, null);
+  assert.equal(out.bot, undefined);
+  assert.deepEqual(out.args, spoof);
+  // Header missing: no bot id is taken from the body.
+  const noHeader = parseCustomFunctionCall(spoof, {}, { payloadArgsOnly: true });
+  assert.equal(noHeader.botId, null);
+  assert.equal(noHeader.agentId, null);
+  assert.equal(noHeader.name, null);
+});
+
+test('parseCustomFunctionCall envelope mode does not autodetect an args-only body', () => {
+  // Default is envelope: a bare args body yields no name and empty args.
+  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'b1');
+  assert.deepEqual(out.args, {});
+  assert.equal(out.bot, undefined);
 });
 
 test('sendCommand sendmsg passes message and msg through', async () => {

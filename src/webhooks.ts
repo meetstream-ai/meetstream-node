@@ -257,25 +257,33 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** What {@link parseCustomFunctionCall} returns. */
 export interface ParsedCustomFunctionCall {
-  /** The function name. `null` for a `payload_args_only` body, which carries no name. */
+  /** The function name. `null` in args-only mode (the body carries no name). */
   name: string | null;
-  /** From the `X-Bot-ID` header, else `bot.bot_id` in the body. */
+  /** From the `X-Bot-ID` header; in envelope mode only, `bot.bot_id` when the header is missing. */
   botId: string | null;
-  /** From the `X-Agent-ID` header, else `bot.agent_id` in the body. */
+  /** From the `X-Agent-ID` header; in envelope mode only, `bot.agent_id` when the header is missing. */
   agentId: string | null;
   args: Record<string, unknown>;
-  /** The `bot` block of the envelope, when the body has one. */
+  /** The envelope's `bot` block. Absent in args-only mode. */
   bot?: CustomFunctionCall['bot'];
 }
 
 /**
  * Read a MIA custom function call in your tool endpoint.
  *
- * Handles both body shapes: the default envelope
- * `{name, bot: {bot_id, dynamic_vars, agent_id?, speaker?}, args}` and the
- * `payload_args_only` body (only the arguments). The shape is detected from
- * the body; pass `{ payloadArgsOnly: true }` to force the args-only reading
- * when your arguments themselves have `name` and `args` keys.
+ * You state the body shape; it is never guessed from the content:
+ * - envelope (default): `{name, bot: {bot_id, dynamic_vars, agent_id?, speaker?}, args}`.
+ * - `{ payloadArgsOnly: true }`, for a function configured with
+ *   `payload_args_only`: the whole body is `args`; `name` is `null` and `bot`
+ *   is absent. Arguments come from the model, so they are never read as an
+ *   envelope, even when they look like one.
+ *
+ * `botId` comes from the `X-Bot-ID` header first, and from `bot.bot_id` only
+ * when the header is missing and the mode is envelope.
+ *
+ * **Every field, `X-Bot-ID` included, is unauthenticated** unless your
+ * endpoint checks its own secret: put a token in the function's `headers` and
+ * compare it before you trust the call.
  *
  * @param body    the request body: raw string or Buffer, or parsed JSON
  * @param headers the request headers
@@ -293,21 +301,16 @@ export function parseCustomFunctionCall(
   const headerBotId = readHeader(headers, BOT_ID_HEADER) || null;
   const headerAgentId = readHeader(headers, AGENT_ID_HEADER) || null;
 
-  const isEnvelope =
-    !options.payloadArgsOnly &&
-    typeof obj.name === 'string' &&
-    isPlainObject(obj.bot) &&
-    (obj.args === undefined || isPlainObject(obj.args));
-
-  if (!isEnvelope) {
+  if (options.payloadArgsOnly) {
     return { name: null, botId: headerBotId, agentId: headerAgentId, args: obj };
   }
-  const bot = obj.bot as CustomFunctionCall['bot'];
-  return {
-    name: obj.name as string,
-    botId: headerBotId ?? (typeof bot.bot_id === 'string' ? bot.bot_id : null),
-    agentId: headerAgentId ?? (typeof bot.agent_id === 'string' ? bot.agent_id : null),
-    args: (obj.args as Record<string, unknown> | undefined) ?? {},
-    bot,
+  const bot = isPlainObject(obj.bot) ? (obj.bot as CustomFunctionCall['bot']) : undefined;
+  const result: ParsedCustomFunctionCall = {
+    name: typeof obj.name === 'string' ? obj.name : null,
+    botId: headerBotId ?? (typeof bot?.bot_id === 'string' ? bot.bot_id : null),
+    agentId: headerAgentId ?? (typeof bot?.agent_id === 'string' ? bot.agent_id : null),
+    args: isPlainObject(obj.args) ? obj.args : {},
   };
+  if (bot) result.bot = bot;
+  return result;
 }
