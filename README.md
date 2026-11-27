@@ -47,7 +47,7 @@ const meetstream = new MeetStream(); // reads MEETSTREAM_API_KEY
 const bot = await meetstream.bots.create({
   meeting_link: 'https://meet.google.com/abc-defg-hij',
   bot_name: 'Notetaker',
-  callback_url: 'https://you.example.com/webhook',   // 2. lifecycle webhooks
+  callback_url: `https://you.example.com/webhook?token=${process.env.MEETSTREAM_WEBHOOK_SECRET}`, // 2. lifecycle webhooks (unsigned: check the token)
   recording_config: { transcript: { provider: { meetstream: { language: 'auto' } } } }, // no provider key needed
 });
 
@@ -67,6 +67,8 @@ await meetstream.bots.create({
 });
 await meetstream.bots.raiseHand(botId); // the bot must be in the meeting (409 otherwise)
 ```
+
+`transcription_mode` on a `*_streaming` provider is `raw` (the default: interim POSTs with `is_final: false`, then the final one), `sentence` (finals only) or `word_level` (one word per POST). Type the POST body with `LiveTranscriptPayload` and keep only final text with `isFinalSegment(payload)`. `meeting_captions` sends `LiveCaptionPayload` (`{ type: 'caption', bot_id, caption: { text, speakerName } }`) instead. Live transcript POSTs are not signed: protect the URL with a token (see [Webhooks](#webhooks)).
 
 Get a key at [app.meetstream.ai/api-key](https://app.meetstream.ai/api-key).
 
@@ -351,7 +353,25 @@ Zoom setup: [Zoom Marketplace app setup](https://docs.meetstream.ai/guides/app-i
 
 ## Webhooks
 
-Verify before you trust. Pass the **raw** body - re-serializing a parsed object changes key order and the signature will never match.
+**Only workspace webhook endpoints are signed.** They carry `X-MeetStream-Signature: sha256=<hex HMAC-SHA256 of the raw body>` and `X-MeetStream-Timestamp` (an ISO 8601 UTC string, for example `2026-11-19T14:30:00Z`). Per-bot `callback_url` deliveries and live transcript POSTs (`live_transcription_required.webhook_url`) are **never signed**. Do not run `parseWebhook` on them: it rejects every delivery.
+
+**Per-bot `callback_url` and live URLs: put a secret token in the URL.**
+
+```ts
+import { timingSafeEqual } from 'node:crypto';
+
+const SECRET = process.env.MEETSTREAM_WEBHOOK_SECRET!;
+// bots.create({ ..., callback_url: `https://you.example.com/webhook?token=${SECRET}` })
+
+app.post('/webhook', express.json(), (req, res) => {
+  const token = Buffer.from(String(req.query.token ?? ''));
+  if (token.length !== SECRET.length || !timingSafeEqual(token, Buffer.from(SECRET))) return res.sendStatus(401);
+  // handle req.body
+  res.sendStatus(200);
+});
+```
+
+**Workspace webhook endpoints: verify the signature.** Pass the **raw** body - re-serializing a parsed object changes key order and the signature will never match.
 
 ```ts
 import express from 'express';
@@ -360,7 +380,10 @@ import { parseWebhook, isTerminal, stopReason, describeStop } from '@meetstream/
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   let event;
   try {
-    event = parseWebhook(req.body, req.header('x-meetstream-signature')!, process.env.WEBHOOK_SECRET!);
+    event = parseWebhook(req.body, req.header('x-meetstream-signature')!, process.env.WEBHOOK_SECRET!, {
+      timestamp: req.header('x-meetstream-timestamp'), // optional replay window
+      toleranceSeconds: 300,                            // off when not set
+    });
   } catch {
     return res.sendStatus(401);
   }
@@ -370,9 +393,24 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-Participant events (`participant_events.join`, `leave`, `chat_message`, `raise_hand`, `lower_hand`) go only to the `recording_config.realtime_endpoints` entries that list them; type them with `ParticipantEventPayload`.
+Participant events (`participant_events.join`, `leave`, `chat_message`, `raise_hand`, `lower_hand`) go only to the `recording_config.realtime_endpoints` entries that list them; type them with `ParticipantEventPayload`. `handEvent(event)` returns `'raise_hand'`, `'lower_hand'` or `null`.
 
 **Terminals are two-layer.** Every ending arrives once as `event: "bot.stopped"`, and `bot_event` says why: `bot.stopped`, `bot.kicked`, `bot.notallowed`, `bot.denied` or `bot.failed`. Not admitted, denied and failed carry `status_code: 500`. `stopReason(event)` reads it for you (a kick and a clean exit both report `bot_status: "Stopped"`, so don't branch on that). On `bot.failed`, `failure_reason` (for example `meeting_restricted` or `sign_in_required`) says why the meeting blocked the join, and `describeStop()` explains it. `bot.error` is *not* terminal; the bot keeps running. `bot.done` is the final event on every path, streaming-only bots included. Every event carries a `timestamp`.
+
+### MIA custom functions
+
+A MIA agent calls each `agent.custom_functions` entry (type it with `CustomFunction`) with the body `{ name, bot: { bot_id, dynamic_vars, agent_id?, speaker? }, args }` and the `X-Bot-ID` header (`X-Agent-ID` when known). With `payload_args_only: true` the body is only `args`. `parseCustomFunctionCall` reads both shapes:
+
+```ts
+import { parseCustomFunctionCall } from '@meetstream/sdk';
+
+app.post('/tools/lookup-order', express.json(), (req, res) => {
+  const { name, botId, args } = parseCustomFunctionCall(req.body, req.headers);
+  res.json({ status: 'shipped', order_id: args.order_id });
+});
+```
+
+These calls are not signed either: add your own auth header in the function's `headers`.
 
 ## Errors
 

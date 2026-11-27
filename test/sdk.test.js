@@ -27,6 +27,12 @@ import {
   segmentSpeaker,
   segmentText,
   segmentStart,
+  PARTICIPANT_HAND_EVENTS,
+  handEvent,
+  isFinalSegment,
+  BOT_ID_HEADER,
+  AGENT_ID_HEADER,
+  parseCustomFunctionCall,
 } from '../dist/esm/index.js';
 
 /** Build a fetch stub that records calls and replays queued responses. */
@@ -835,4 +841,112 @@ test('segment helpers still read the flat speaker/transcript shape', () => {
   assert.equal(segmentSpeaker(flat), 'Alice');
   assert.equal(segmentText(flat), 'hello there');
   assert.equal(segmentStart(flat), 0);
+});
+
+/* ------------------------------------------- MS-2488: SDK flow gaps */
+
+test('timestamp tolerance is off by default, so existing calls are unchanged', () => {
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, {}), true);
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: 'not a date' }), true);
+});
+
+test('timestamp tolerance accepts an ISO X-MeetStream-Timestamp inside the window', () => {
+  const now = Date.parse('2026-11-19T14:30:00Z');
+  const opts = { timestamp: '2026-11-19T14:28:00Z', toleranceSeconds: 300, now };
+  assert.equal(verifyWebhookSignature(BODY, `sha256=${SIG}`, SECRET, opts), true);
+  assert.equal(parseWebhook(BODY, SIG, SECRET, opts).bot_id, 'b1');
+  // A future timestamp inside the window is accepted too (clock skew).
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { ...opts, timestamp: '2026-11-19T14:31:00Z' }), true);
+  // now as a Date
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { ...opts, now: new Date(now) }), true);
+});
+
+test('timestamp tolerance rejects old, missing or unparseable timestamps', () => {
+  const now = Date.parse('2026-11-19T14:30:00Z');
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: '2026-11-19T14:20:00Z', toleranceSeconds: 300, now }), false);
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { toleranceSeconds: 300, now }), false);
+  assert.equal(verifyWebhookSignature(BODY, SIG, SECRET, { timestamp: '1763562600', toleranceSeconds: 300, now }), false);
+  assert.throws(
+    () => parseWebhook(BODY, SIG, SECRET, { timestamp: '2026-11-19T14:20:00Z', toleranceSeconds: 300, now }),
+    /verification failed/,
+  );
+  // A bad signature still fails inside the window.
+  assert.equal(verifyWebhookSignature(BODY, 'bad', SECRET, { timestamp: '2026-11-19T14:30:00Z', toleranceSeconds: 300, now }), false);
+});
+
+test('handEvent matches the Python hand_event helper', () => {
+  assert.deepEqual([...PARTICIPANT_HAND_EVENTS], ['participant_events.raise_hand', 'participant_events.lower_hand']);
+  assert.equal(handEvent({ event: 'participant_events.raise_hand' }), 'raise_hand');
+  assert.equal(handEvent({ event: 'participant_events.lower_hand' }), 'lower_hand');
+  assert.equal(handEvent({ event: 'participant_events.join' }), null);
+  assert.equal(handEvent({ event: 'bot.stopped' }), null);
+  assert.equal(handEvent({}), null);
+});
+
+test('isFinalSegment skips raw interim results and keeps finals', () => {
+  const base = { bot_id: 'b1', speakerName: 'Ada', transcript: 'hello' };
+  // raw is the default when transcription_mode is absent
+  assert.equal(isFinalSegment({ ...base, is_final: false }), false);
+  assert.equal(isFinalSegment({ ...base }), false);
+  assert.equal(isFinalSegment({ ...base, is_final: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', is_final: false }), false);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', is_final: true }), true);
+  // AssemblyAI marks finals with end_of_turn
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', end_of_turn: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'raw', end_of_turn: false }), false);
+  // sentence and word_level are always final
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'sentence', end_of_turn: true }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'sentence' }), true);
+  assert.equal(isFinalSegment({ ...base, transcription_mode: 'word_level', utterance: '' }), true);
+});
+
+test('custom function header names', () => {
+  assert.equal(BOT_ID_HEADER, 'X-Bot-ID');
+  assert.equal(AGENT_ID_HEADER, 'X-Agent-ID');
+});
+
+test('parseCustomFunctionCall reads the default envelope', () => {
+  const body = { name: 'lookup_order', bot: { bot_id: 'b1', dynamic_vars: { tier: 'gold' }, agent_id: 'a1' }, args: { order_id: '42' } };
+  const out = parseCustomFunctionCall(JSON.stringify(body), { 'x-bot-id': 'b1', 'x-agent-id': 'a1' });
+  assert.equal(out.name, 'lookup_order');
+  assert.equal(out.botId, 'b1');
+  assert.equal(out.agentId, 'a1');
+  assert.deepEqual(out.args, { order_id: '42' });
+  assert.deepEqual(out.bot.dynamic_vars, { tier: 'gold' });
+  // Buffer and parsed bodies, no headers: falls back to the body's bot block
+  assert.equal(parseCustomFunctionCall(Buffer.from(JSON.stringify(body))).botId, 'b1');
+  const parsed = parseCustomFunctionCall(body);
+  assert.equal(parsed.botId, 'b1');
+  assert.equal(parsed.agentId, 'a1');
+});
+
+test('parseCustomFunctionCall prefers the X-Bot-ID header, with fetch Headers too', () => {
+  const body = { name: 'f', bot: { bot_id: 'from-body' }, args: {} };
+  const headers = new Headers({ 'X-Bot-ID': 'from-header' });
+  const out = parseCustomFunctionCall(body, headers);
+  assert.equal(out.botId, 'from-header');
+  assert.equal(out.agentId, null);
+  assert.equal(parseCustomFunctionCall(body, { 'X-Bot-ID': ['arr-header'] }).botId, 'arr-header');
+});
+
+test('parseCustomFunctionCall handles payload_args_only bodies', () => {
+  const out = parseCustomFunctionCall('{"order_id":"42"}', { 'X-Bot-ID': 'b1' });
+  assert.equal(out.name, null);
+  assert.equal(out.botId, 'b1');
+  assert.equal(out.agentId, null);
+  assert.deepEqual(out.args, { order_id: '42' });
+  assert.equal(out.bot, undefined);
+  // Arguments that look like an envelope can be forced to the args-only reading
+  const tricky = { name: 'x', bot: { bot_id: 'y' }, args: { z: 1 } };
+  const forced = parseCustomFunctionCall(tricky, { 'x-bot-id': 'b1' }, { payloadArgsOnly: true });
+  assert.equal(forced.name, null);
+  assert.deepEqual(forced.args, tricky);
+  // An empty body gives empty args
+  assert.deepEqual(parseCustomFunctionCall('', { 'x-bot-id': 'b1' }).args, {});
+});
+
+test('sendCommand sendmsg passes message and msg through', async () => {
+  const { ms, calls } = client({ body: { status: 'sent' } });
+  await ms.bots.sendCommand('b1', { command: 'sendmsg', message: 'hi', msg: 'hi' });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { command: 'sendmsg', message: 'hi', msg: 'hi' });
 });

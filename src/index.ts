@@ -79,7 +79,20 @@ export {
   isInbuiltKeysUnavailable,
 } from './errors.js';
 
-export { verifyWebhookSignature, parseWebhook, isTerminal, stopReason, describeStop } from './webhooks.js';
+export {
+  verifyWebhookSignature,
+  parseWebhook,
+  isTerminal,
+  stopReason,
+  describeStop,
+  PARTICIPANT_HAND_EVENTS,
+  handEvent,
+  isFinalSegment,
+  BOT_ID_HEADER,
+  AGENT_ID_HEADER,
+  parseCustomFunctionCall,
+} from './webhooks.js';
+export type { VerifyWebhookOptions, HeaderSource, ParsedCustomFunctionCall } from './webhooks.js';
 export { isSpeakerTimelineDownload };
 export { segmentSpeaker, segmentText, segmentStart } from './transcript.js';
 export type { CalendarProvider } from './resources/calendar.js';
@@ -139,6 +152,12 @@ export type {
   TranscriptionProvider,
   PostCallTranscriptionProvider,
   StreamingTranscriptionProvider,
+  StreamingTranscriptionConfig,
+  TranscriptionMode,
+  LiveTranscriptPayload,
+  LiveCaptionPayload,
+  CustomFunction,
+  CustomFunctionCall,
   MiaModelConfig,
   MiaAgentConfig,
   MiaTranscriberConfig,
